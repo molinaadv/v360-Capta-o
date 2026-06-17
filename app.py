@@ -95,8 +95,10 @@ BAIRROS_BOA_VISTA = [
     "Sílvio Leite",
     "Tancredo Neves",
     "Trinta e Um de Março",
-    "União"
+    "União",
+    "Outro",
 ]
+
 
 AREAS_ACAO = ["Previdenciário", "Trabalhista", "Cível", "Família", "Outro"]
 
