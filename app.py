@@ -1,22 +1,26 @@
-import streamlit as st
+import base64
+from pathlib import Path
+from datetime import date, timedelta
+
 import pandas as pd
 import plotly.express as px
-from datetime import date, timedelta
+import streamlit as st
 from supabase import create_client, Client
 
 # =====================================================
-# APP DE CAPTAÇÃO - MOLINA ADVOGADOS / BOA VISTA
+# V360 CAPTAÇÃO - MOLINA ADVOGADOS / BOA VISTA
 # Streamlit + Supabase
 # =====================================================
 
 st.set_page_config(
-    page_title="Captação Molina - Boa Vista",
+    page_title="V360 Captação",
     page_icon="📍",
     layout="wide"
 )
 
 TABELA_USUARIOS = "captacao_usuarios"
 TABELA_LEADS = "captacao_leads"
+LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -47,21 +51,12 @@ BAIRROS_BOA_VISTA = [
     "Tancredo Neves", "União", "Outro"
 ]
 
-AREAS_ACAO = [
-    "Previdenciário", "Trabalhista", "Cível", "Família", "Outro"
-]
+AREAS_ACAO = ["Previdenciário", "Trabalhista", "Cível", "Família", "Outro"]
 
 TIPOS_BENEFICIO = [
-    "LOAS Idoso",
-    "LOAS Deficiente",
-    "Auxílio-doença / Incapacidade temporária",
-    "Aposentadoria por idade urbana",
-    "Aposentadoria rural",
-    "Salário-maternidade",
-    "Pensão por morte",
-    "Auxílio-reclusão",
-    "Revisão de benefício",
-    "Outro"
+    "LOAS Idoso", "LOAS Deficiente", "Auxílio-doença / Incapacidade temporária",
+    "Aposentadoria por idade urbana", "Aposentadoria rural", "Salário-maternidade",
+    "Pensão por morte", "Auxílio-reclusão", "Revisão de benefício", "Outro"
 ]
 
 STATUS_LEAD = ["Novo", "Em atendimento", "Convertido", "Perdido"]
@@ -70,6 +65,190 @@ MOTIVOS_PERDA = [
     "Não apresentou documentos", "Sem contato", "Benefício negado anteriormente",
     "Valor de honorários", "Outro"
 ]
+
+# -------------------------------
+# VISUAL / MARCA
+# -------------------------------
+def get_logo_base64() -> str:
+    caminho = Path(LOGO_FILE)
+    if not caminho.exists():
+        caminho = Path(__file__).parent / LOGO_FILE
+    if caminho.exists():
+        return base64.b64encode(caminho.read_bytes()).decode("utf-8")
+    return ""
+
+
+def aplicar_css_base():
+    st.markdown(
+        """
+        <style>
+        :root {
+            --v360-navy: #061A33;
+            --v360-navy-2: #09294D;
+            --v360-cyan: #18BDF2;
+            --v360-blue: #0077C8;
+            --v360-text: #1E2A3A;
+            --v360-soft: #F4F8FC;
+        }
+        .block-container { padding-top: 1rem; }
+        h1, h2, h3 { color: var(--v360-text); }
+        .stButton > button {
+            border-radius: 12px;
+            border: 1px solid #D8E2ED;
+            font-weight: 700;
+        }
+        div[data-testid="stMetric"] {
+            background: white;
+            border: 1px solid #E0E8F0;
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 8px 24px rgba(6,26,51,0.06);
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def aplicar_css_mobile():
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] { display: none; }
+        .block-container {
+            max-width: 460px;
+            padding: 0 !important;
+            background: #F4F8FC;
+        }
+        .main .block-container { margin: 0 auto; }
+        .mobile-header {
+            background: linear-gradient(145deg, #061A33 0%, #09294D 65%, #064A80 100%);
+            color: white;
+            padding: 26px 24px 60px 24px;
+            border-bottom: 5px solid #18BDF2;
+            border-radius: 0 0 28px 28px;
+            box-shadow: 0 12px 28px rgba(6,26,51,.22);
+        }
+        .brand-line { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+        .v360-title { font-size: 32px; font-weight: 900; letter-spacing: -1px; line-height:1; }
+        .v360-sub { color:#18BDF2; font-size:17px; font-weight:800; letter-spacing:4px; margin-top:6px; }
+        .molina-logo { max-width: 142px; height:auto; }
+        .mobile-card {
+            margin: -38px 16px 18px 16px;
+            padding: 20px 18px 18px 18px;
+            background: white;
+            border-radius: 22px;
+            border: 1px solid #E0E8F0;
+            box-shadow: 0 16px 36px rgba(6,26,51,.14);
+        }
+        .card-title { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
+        .pin-circle {
+            background: linear-gradient(145deg, #0077C8, #18BDF2);
+            color:white; width:48px; height:48px; border-radius:50%;
+            display:flex; align-items:center; justify-content:center; font-size:24px;
+        }
+        .card-title h2 { margin:0; font-size:28px; color:#1E2A3A; }
+        .card-sub { color:#65748A; margin:0 0 16px 60px; }
+        label, .stTextInput label, .stTextArea label, .stSelectbox label { font-weight: 700 !important; color:#34435A !important; }
+        .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
+            border-radius: 12px !important;
+            min-height: 48px;
+        }
+        .stButton > button {
+            width: 100%;
+            height: 54px;
+            border-radius: 14px;
+            border: none;
+            background: linear-gradient(90deg, #18BDF2, #0077C8);
+            color: white;
+            font-size: 18px;
+            font-weight: 900;
+            box-shadow: 0 10px 22px rgba(0,119,200,.25);
+        }
+        .stButton > button:hover { color:white; filter: brightness(1.02); }
+        .mobile-note { text-align:center; color:#65748A; font-size:14px; padding-top:6px; }
+        .mobile-tabs {
+            display:grid; grid-template-columns:1fr 1fr; gap:8px;
+            background:white; border-top:1px solid #E0E8F0; padding:10px 14px 12px 14px;
+            position: sticky; bottom:0; z-index:99;
+        }
+        .mobile-tab {
+            text-align:center; color:#34435A; font-weight:800; font-size:13px;
+            padding:8px 4px; border-radius:12px;
+        }
+        .mobile-tab.active { color:#0077C8; background:#EAF7FE; }
+        div[data-testid="stAlert"] { margin-left:16px; margin-right:16px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def header_mobile():
+    logo64 = get_logo_base64()
+    logo_html = f'<img class="molina-logo" src="data:image/png;base64,{logo64}" />' if logo64 else '<div style="font-weight:800">MOLINA<br><span style="font-size:12px;letter-spacing:3px">ADVOGADOS</span></div>'
+    st.markdown(
+        f"""
+        <div class="mobile-header">
+            <div class="brand-line">
+                <div>
+                    <div class="v360-title"><span style="color:#18BDF2">V</span>360</div>
+                    <div class="v360-sub">CAPTAÇÃO</div>
+                </div>
+                {logo_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def abrir_card_mobile(titulo="Novo Lead", subtitulo="Preencha os dados do cliente"):
+    st.markdown(
+        f"""
+        <div class="mobile-card">
+            <div class="card-title"><div class="pin-circle">📍</div><h2>{titulo}</h2></div>
+            <p class="card-sub">{subtitulo}</p>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def fechar_card_mobile():
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+def mobile_bottom_nav(ativo="Novo Lead"):
+    novo_class = "mobile-tab active" if ativo == "Novo Lead" else "mobile-tab"
+    minhas_class = "mobile-tab active" if ativo == "Minhas Captações" else "mobile-tab"
+    st.markdown(
+        f"""
+        <div class="mobile-tabs">
+            <div class="{novo_class}">➕<br>Novo Lead</div>
+            <div class="{minhas_class}">📋<br>Minhas Captações</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def header_desktop(usuario):
+    logo64 = get_logo_base64()
+    logo_html = f'<img src="data:image/png;base64,{logo64}" style="height:52px; object-fit:contain;" />' if logo64 else "<b>MOLINA ADVOGADOS</b>"
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(90deg,#061A33,#09294D); padding:18px 24px; border-radius:18px; margin-bottom:22px; display:flex; align-items:center; justify-content:space-between; color:white;">
+            <div>
+                <div style="font-size:30px;font-weight:900;"><span style="color:#18BDF2">V</span>360 Captação</div>
+                <div style="color:#B8D9EF;">Boa Vista • Usuário: {usuario['nome']}</div>
+            </div>
+            {logo_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+aplicar_css_base()
 
 # -------------------------------
 # FUNÇÕES AUXILIARES
@@ -150,15 +329,18 @@ def pode_ver_todos(usuario: dict) -> bool:
 # -------------------------------
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
+if "captador_pagina" not in st.session_state:
+    st.session_state.captador_pagina = "Novo Lead"
 
 if st.session_state.usuario is None:
-    st.title("📍 Captação Molina - Boa Vista")
-    st.subheader("Acesso")
-
+    aplicar_css_mobile()
+    header_mobile()
+    abrir_card_mobile("Acesso", "Entre para registrar captações")
     with st.form("form_login"):
         email = st.text_input("E-mail")
         senha = st.text_input("Senha", type="password")
-        entrar = st.form_submit_button("Entrar")
+        entrar = st.form_submit_button("ENTRAR")
+    fechar_card_mobile()
 
     if entrar:
         usuario = buscar_usuario(email, senha)
@@ -168,15 +350,94 @@ if st.session_state.usuario is None:
         else:
             st.error("Usuário ou senha inválidos, ou usuário inativo.")
 
-    st.info("Usuário inicial de teste: gestor@molina.com / 123456 ou captador@molina.com / 123456")
+    st.info("Teste: gestor@molina.com / 123456 ou captador@molina.com / 123456")
     st.stop()
 
 usuario = st.session_state.usuario
+perfil = usuario.get("perfil")
 
 # -------------------------------
-# MENU LATERAL
+# ROTAS DO CAPTADOR - ESTILO CELULAR
 # -------------------------------
-st.sidebar.title("📍 Captação")
+if perfil == "captador":
+    aplicar_css_mobile()
+    header_mobile()
+
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("➕ Novo Lead"):
+            st.session_state.captador_pagina = "Novo Lead"
+            st.rerun()
+    with col_nav2:
+        if st.button("📋 Minhas"):
+            st.session_state.captador_pagina = "Minhas Captações"
+            st.rerun()
+
+    if st.session_state.captador_pagina == "Novo Lead":
+        abrir_card_mobile("Novo Lead", "Preencha os dados do cliente")
+        with st.form("form_novo_lead_mobile", clear_on_submit=True):
+            nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
+            cpf = st.text_input("CPF", placeholder="000.000.000-00")
+            telefone = st.text_input("Telefone *", placeholder="(95) 00000-0000")
+            bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
+            local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
+            area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
+            tipo_beneficio = st.selectbox("Tipo de benefício *", TIPOS_BENEFICIO)
+            observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
+            enviar = st.form_submit_button("💾 SALVAR LEAD")
+            st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
+        fechar_card_mobile()
+
+        if enviar:
+            if not nome_cliente or not telefone or not bairro or not local_captacao:
+                st.error("Preencha os campos obrigatórios marcados com *.")
+            else:
+                dados = {
+                    "captador_id": usuario["id"],
+                    "captador_nome": usuario["nome"],
+                    "unidade": "Boa Vista",
+                    "nome_cliente": normalizar_texto(nome_cliente),
+                    "cpf": limpar_cpf(cpf),
+                    "telefone": telefone.strip(),
+                    "bairro": bairro,
+                    "local_captacao": normalizar_texto(local_captacao),
+                    "area_acao": area_acao,
+                    "tipo_beneficio": tipo_beneficio,
+                    "observacao": observacao.strip(),
+                    "status_lead": "Novo",
+                }
+                try:
+                    salvar_lead(dados)
+                    st.success("Lead salvo com sucesso!")
+                except Exception as e:
+                    st.error(f"Erro ao salvar lead: {e}")
+
+    else:
+        abrir_card_mobile("Minhas Captações", "Últimos leads cadastrados")
+        df = carregar_leads()
+        if df.empty:
+            st.info("Nenhuma captação encontrada.")
+        else:
+            df = df[df["captador_id"].astype(str) == str(usuario["id"])]
+            status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD)
+            if status_filtro:
+                df = df[df["status_lead"].isin(status_filtro)]
+            colunas = ["data_captacao", "nome_cliente", "telefone", "bairro", "tipo_beneficio", "status_lead"]
+            colunas = [c for c in colunas if c in df.columns]
+            st.dataframe(df[colunas], use_container_width=True, hide_index=True)
+        fechar_card_mobile()
+
+    if st.button("Sair"):
+        st.session_state.usuario = None
+        st.rerun()
+    mobile_bottom_nav(st.session_state.captador_pagina)
+    st.stop()
+
+# -------------------------------
+# MENU DESKTOP - GESTOR / SUPERVISOR
+# -------------------------------
+header_desktop(usuario)
+st.sidebar.title("📍 V360 Captação")
 st.sidebar.write(f"**Usuário:** {usuario['nome']}")
 st.sidebar.write(f"**Perfil:** {usuario['perfil'].title()}")
 
@@ -191,7 +452,7 @@ if st.sidebar.button("Sair"):
     st.rerun()
 
 # -------------------------------
-# NOVO LEAD
+# NOVO LEAD DESKTOP
 # -------------------------------
 if pagina == "Novo Lead":
     st.title("➕ Novo Lead")
@@ -228,7 +489,7 @@ if pagina == "Novo Lead":
                 "area_acao": area_acao,
                 "tipo_beneficio": tipo_beneficio,
                 "observacao": observacao.strip(),
-                "status_lead": "Novo"
+                "status_lead": "Novo",
             }
             try:
                 salvar_lead(dados)
