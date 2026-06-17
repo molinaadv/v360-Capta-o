@@ -21,6 +21,7 @@ st.set_page_config(
 TABELA_USUARIOS = "captacao_usuarios"
 TABELA_LEADS = "captacao_leads"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
+VERSAO_APP = "mobile-header-compacto-2026-06-17-v3"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -114,7 +115,8 @@ def aplicar_css_mobile():
     st.markdown(
         """
         <style>
-        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stSidebar"] { display: none !important; }
+        header[data-testid="stHeader"] { background: transparent; }
         .block-container {
             max-width: 460px;
             padding: 0 !important;
@@ -124,69 +126,225 @@ def aplicar_css_mobile():
         .mobile-header {
             background: linear-gradient(145deg, #061A33 0%, #09294D 65%, #064A80 100%);
             color: white;
-            padding: 26px 24px 60px 24px;
-            border-bottom: 5px solid #18BDF2;
-            border-radius: 0 0 28px 28px;
-            box-shadow: 0 12px 28px rgba(6,26,51,.22);
+            padding: 14px 16px 12px 16px;
+            border-bottom: 4px solid #18BDF2;
+            border-radius: 0 0 18px 18px;
+            box-shadow: 0 10px 22px rgba(6,26,51,.18);
+            overflow: hidden;
+            margin-bottom: 10px;
         }
-        .brand-line { display:flex; align-items:center; justify-content:space-between; gap:14px; }
-        .v360-title { font-size: 32px; font-weight: 900; letter-spacing: -1px; line-height:1; }
-        .v360-sub { color:#18BDF2; font-size:17px; font-weight:800; letter-spacing:4px; margin-top:6px; }
-        .molina-logo { max-width: 142px; height:auto; }
+        .brand-line {
+            display:flex;
+            flex-direction:row;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            width:100%;
+        }
+        .v360-title { font-size: 28px; font-weight: 950; letter-spacing: -1px; line-height:1; white-space:nowrap; }
+        .v360-sub { color:#18BDF2; font-size:12px; font-weight:900; letter-spacing:3px; margin-top:5px; white-space:nowrap; }
+        .molina-logo-wrap { flex:1; display:flex; justify-content:flex-end; min-width:0; }
+        .molina-logo { width: 100%; max-width: 175px; max-height: 54px; height:auto; object-fit:contain; display:block; }
+        .mobile-user-line { color:#B8D9EF; font-size:12px; margin-top:8px; }
+        .mobile-nav-box {
+            margin: 10px 14px 8px 14px;
+            padding: 8px;
+            background: rgba(255,255,255,.92);
+            border: 1px solid #DCE8F4;
+            border-radius: 16px;
+            box-shadow: 0 8px 20px rgba(6,26,51,.08);
+        }
+        .mobile-nav-box div[role="radiogroup"] {
+            display:grid !important;
+            grid-template-columns: 1fr 1fr;
+            gap:8px;
+        }
+        .mobile-nav-box div[role="radiogroup"] label {
+            background:#F4F8FC !important;
+            border:1px solid #DCE8F4 !important;
+            border-radius:14px !important;
+            padding:10px 8px !important;
+            margin:0 !important;
+            min-height:44px;
+            display:flex !important;
+            align-items:center !important;
+            justify-content:center !important;
+            text-align:center !important;
+            font-weight:900 !important;
+            color:#34435A !important;
+            font-size:13px !important;
+        }
+        .mobile-nav-box div[role="radiogroup"] label:has(input:checked) {
+            background: linear-gradient(90deg, #18BDF2, #0077C8) !important;
+            border-color:#18BDF2 !important;
+            color:white !important;
+            box-shadow: 0 8px 18px rgba(0,119,200,.20);
+        }
+        .mobile-nav-box div[role="radiogroup"] label:has(input:checked) * { color:white !important; }
+        .mobile-nav-box div[role="radiogroup"] label > div:first-child { display:none !important; }
         .mobile-card {
-            margin: -38px 16px 18px 16px;
-            padding: 20px 18px 18px 18px;
+            margin: 10px 14px 16px 14px;
+            padding: 18px 16px 16px 16px;
             background: white;
             border-radius: 22px;
             border: 1px solid #E0E8F0;
-            box-shadow: 0 16px 36px rgba(6,26,51,.14);
+            box-shadow: 0 12px 28px rgba(6,26,51,.10);
         }
         .card-title { display:flex; align-items:center; gap:12px; margin-bottom:4px; }
         .pin-circle {
             background: linear-gradient(145deg, #0077C8, #18BDF2);
-            color:white; width:48px; height:48px; border-radius:50%;
+            color:white; min-width:48px; width:48px; height:48px; border-radius:50%;
             display:flex; align-items:center; justify-content:center; font-size:24px;
         }
-        .card-title h2 { margin:0; font-size:28px; color:#1E2A3A; }
-        .card-sub { color:#65748A; margin:0 0 16px 60px; }
+        .card-title h2 { margin:0; font-size:27px; color:#1E2A3A; }
+        .card-sub { color:#65748A; margin:0 0 12px 60px; }
         label, .stTextInput label, .stTextArea label, .stSelectbox label { font-weight: 700 !important; color:#34435A !important; }
         .stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] > div {
             border-radius: 12px !important;
             min-height: 48px;
         }
-        .stButton > button {
+        .mobile-card .stButton > button {
             width: 100%;
-            height: 54px;
+            height: 50px;
             border-radius: 14px;
             border: none;
             background: linear-gradient(90deg, #18BDF2, #0077C8);
             color: white;
-            font-size: 18px;
+            font-size: 16px;
             font-weight: 900;
-            box-shadow: 0 10px 22px rgba(0,119,200,.25);
+            box-shadow: 0 10px 22px rgba(0,119,200,.22);
         }
-        .stButton > button:hover { color:white; filter: brightness(1.02); }
+        .mobile-card .stButton > button:hover { color:white; filter: brightness(1.02); }
         .mobile-note { text-align:center; color:#65748A; font-size:14px; padding-top:6px; }
-        .mobile-tabs {
-            display:grid; grid-template-columns:1fr 1fr; gap:8px;
-            background:white; border-top:1px solid #E0E8F0; padding:10px 14px 12px 14px;
-            position: sticky; bottom:0; z-index:99;
-        }
-        .mobile-tab {
-            text-align:center; color:#34435A; font-weight:800; font-size:13px;
-            padding:8px 4px; border-radius:12px;
-        }
-        .mobile-tab.active { color:#0077C8; background:#EAF7FE; }
         div[data-testid="stAlert"] { margin-left:16px; margin-right:16px; }
+        @media (max-width: 390px) {
+            .v360-title { font-size: 24px; }
+            .v360-sub { font-size: 10px; letter-spacing:2.5px; }
+            .molina-logo { max-width: 150px; max-height: 48px; }
+            .card-title h2 { font-size: 24px; }
+        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
+def aplicar_css_sidebar_desktop():
+    st.markdown(
+        """
+        <style>
+        /* SIDEBAR V360 - versão atualizada */
+        section[data-testid="stSidebar"],
+        [data-testid="stSidebar"],
+        [data-testid="stSidebar"] > div {
+            background: linear-gradient(180deg, #061A33 0%, #09294D 56%, #0A3D7A 100%) !important;
+        }
+        [data-testid="stSidebar"] {
+            border-right: 1px solid rgba(24,189,242,.35) !important;
+            box-shadow: 8px 0 26px rgba(6,26,51,.10);
+        }
+        [data-testid="stSidebar"] * {
+            color: #FFFFFF !important;
+        }
+        [data-testid="stSidebar"] a,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] span,
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] div {
+            color: #FFFFFF !important;
+        }
+        .sidebar-brand {
+            text-align: center;
+            padding: 20px 8px 18px 8px;
+            margin: 0 0 16px 0;
+            border-bottom: 1px solid rgba(255,255,255,.16);
+        }
+        .sidebar-v360 {
+            font-size: 32px;
+            line-height: 1;
+            font-weight: 950;
+            letter-spacing: -1px;
+            color: #FFFFFF !important;
+        }
+        .sidebar-cap {
+            margin-top: 8px;
+            color: #18BDF2 !important;
+            font-size: 14px;
+            font-weight: 950;
+            letter-spacing: 4px;
+        }
+        .sidebar-user-card {
+            background: rgba(255,255,255,.09) !important;
+            border: 1px solid rgba(255,255,255,.18) !important;
+            border-radius: 16px;
+            padding: 14px 12px;
+            margin: 8px 0 18px 0;
+            box-shadow: 0 10px 24px rgba(0,0,0,.14);
+        }
+        .sidebar-user-name {
+            font-weight: 900;
+            font-size: 15px;
+            margin-bottom: 7px;
+            color:#FFFFFF !important;
+        }
+        .sidebar-user-profile {
+            color: #B8D9EF !important;
+            font-weight: 700;
+            font-size: 13px;
+        }
+        .sidebar-menu-title {
+            color: #B8D9EF !important;
+            text-transform: uppercase;
+            font-size: 12px;
+            font-weight: 950;
+            letter-spacing: 1.4px;
+            margin: 12px 0 8px 0;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] label {
+            background: rgba(255,255,255,.07) !important;
+            border: 1px solid rgba(255,255,255,.14) !important;
+            border-radius: 12px !important;
+            padding: 9px 10px !important;
+            margin-bottom: 8px !important;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
+            background: rgba(24,189,242,.18) !important;
+            border-color: rgba(24,189,242,.55) !important;
+        }
+        [data-testid="stSidebar"] div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child {
+            border-color: #18BDF2 !important;
+        }
+        [data-testid="stSidebar"] .stButton > button {
+            width: 100%;
+            background: rgba(255,255,255,.09) !important;
+            border: 1px solid rgba(255,255,255,.22) !important;
+            color: #FFFFFF !important;
+            border-radius: 12px;
+            font-weight: 850;
+        }
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: rgba(24,189,242,.20) !important;
+            border-color: rgba(24,189,242,.60) !important;
+            color: #FFFFFF !important;
+        }
+        .sidebar-version {
+            margin-top: 18px;
+            color: rgba(255,255,255,.45) !important;
+            font-size: 10px;
+            text-align:center;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def header_mobile():
     logo64 = get_logo_base64()
     logo_html = f'<img class="molina-logo" src="data:image/png;base64,{logo64}" />' if logo64 else '<div style="font-weight:800">MOLINA<br><span style="font-size:12px;letter-spacing:3px">ADVOGADOS</span></div>'
+    user_line = ""
+    if st.session_state.get("usuario"):
+        u = st.session_state.usuario
+        user_line = f"<div class='mobile-user-line'>Boa Vista • {u.get('nome','')}</div>"
     st.markdown(
         f"""
         <div class="mobile-header">
@@ -195,8 +353,9 @@ def header_mobile():
                     <div class="v360-title"><span style="color:#18BDF2">V</span>360</div>
                     <div class="v360-sub">CAPTAÇÃO</div>
                 </div>
-                {logo_html}
+                <div class="molina-logo-wrap">{logo_html}</div>
             </div>
+            {user_line}
         </div>
         """,
         unsafe_allow_html=True,
@@ -363,15 +522,21 @@ if perfil == "captador":
     aplicar_css_mobile()
     header_mobile()
 
-    col_nav1, col_nav2 = st.columns(2)
-    with col_nav1:
-        if st.button("➕ Novo Lead"):
-            st.session_state.captador_pagina = "Novo Lead"
-            st.rerun()
-    with col_nav2:
-        if st.button("📋 Minhas"):
-            st.session_state.captador_pagina = "Minhas Captações"
-            st.rerun()
+    nav_atual = "➕ Novo Lead" if st.session_state.captador_pagina == "Novo Lead" else "📋 Minhas Captações"
+    st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
+    nav_escolhida = st.radio(
+        "Navegação",
+        ["➕ Novo Lead", "📋 Minhas Captações"],
+        index=0 if nav_atual == "➕ Novo Lead" else 1,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="captador_nav_radio",
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+    nova_pagina = "Novo Lead" if nav_escolhida == "➕ Novo Lead" else "Minhas Captações"
+    if nova_pagina != st.session_state.captador_pagina:
+        st.session_state.captador_pagina = nova_pagina
+        st.rerun()
 
     if st.session_state.captador_pagina == "Novo Lead":
         abrir_card_mobile("Novo Lead", "Preencha os dados do cliente")
@@ -430,24 +595,51 @@ if perfil == "captador":
     if st.button("Sair"):
         st.session_state.usuario = None
         st.rerun()
-    mobile_bottom_nav(st.session_state.captador_pagina)
     st.stop()
 
 # -------------------------------
 # MENU DESKTOP - GESTOR / SUPERVISOR
 # -------------------------------
+aplicar_css_sidebar_desktop()
 header_desktop(usuario)
-st.sidebar.title("📍 V360 Captação")
-st.sidebar.write(f"**Usuário:** {usuario['nome']}")
-st.sidebar.write(f"**Perfil:** {usuario['perfil'].title()}")
 
-opcoes = ["Novo Lead", "Minhas Captações"]
+st.sidebar.markdown(
+    """
+    <div class="sidebar-brand">
+        <div class="sidebar-v360"><span style="color:#18BDF2">V</span>360</div>
+        <div class="sidebar-cap">CAPTAÇÃO</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.sidebar.markdown(
+    f"""
+    <div class="sidebar-user-card">
+        <div class="sidebar-user-name">👤 {usuario['nome']}</div>
+        <div class="sidebar-user-profile">🏷️ {usuario['perfil'].title()}</div>
+    </div>
+    <div class="sidebar-menu-title">Menu</div>
+    """,
+    unsafe_allow_html=True,
+)
+
+opcoes_base = {
+    "➕ Novo Lead": "Novo Lead",
+    "📋 Minhas Captações": "Minhas Captações",
+}
 if pode_ver_todos(usuario):
-    opcoes += ["Painel Gestor", "Atualizar Lead", "Usuários"]
+    opcoes_base.update({
+        "📊 Painel Gestor": "Painel Gestor",
+        "✏️ Atualizar Lead": "Atualizar Lead",
+        "👥 Usuários": "Usuários",
+    })
 
-pagina = st.sidebar.radio("Menu", opcoes)
+pagina_label = st.sidebar.radio("", list(opcoes_base.keys()), label_visibility="collapsed")
+pagina = opcoes_base[pagina_label]
 
-if st.sidebar.button("Sair"):
+st.sidebar.markdown("<br>", unsafe_allow_html=True)
+st.sidebar.markdown(f"<div class='sidebar-version'>Versão: {VERSAO_APP}</div>", unsafe_allow_html=True)
+if st.sidebar.button("🚪 Sair"):
     st.session_state.usuario = None
     st.rerun()
 
