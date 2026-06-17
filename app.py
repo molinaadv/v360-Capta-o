@@ -21,7 +21,7 @@ st.set_page_config(
 TABELA_USUARIOS = "captacao_usuarios"
 TABELA_LEADS = "captacao_leads"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "mobile-header-compacto-2026-06-17-v3"
+VERSAO_APP = "melhorias-cpf-telefone-duplicidade-funil-v4"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -466,10 +466,66 @@ def normalizar_texto(valor: str) -> str:
     return " ".join(valor.strip().split()).title()
 
 
-def limpar_cpf(valor: str) -> str:
+def apenas_digitos(valor: str) -> str:
     if not valor:
         return ""
-    return "".join(ch for ch in valor if ch.isdigit())
+    return "".join(ch for ch in str(valor) if ch.isdigit())
+
+
+def limpar_cpf(valor: str) -> str:
+    return apenas_digitos(valor)
+
+
+def formatar_cpf(valor: str) -> str:
+    digitos = apenas_digitos(valor)
+    if len(digitos) != 11:
+        return valor or ""
+    return f"{digitos[:3]}.{digitos[3:6]}.{digitos[6:9]}-{digitos[9:]}"
+
+
+def formatar_telefone(valor: str) -> str:
+    digitos = apenas_digitos(valor)
+    if len(digitos) == 11:
+        return f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
+    if len(digitos) == 10:
+        return f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
+    return valor.strip() if isinstance(valor, str) else ""
+
+
+def cpf_valido_ou_vazio(valor: str) -> bool:
+    digitos = apenas_digitos(valor)
+    return digitos == "" or len(digitos) == 11
+
+
+def telefone_valido(valor: str) -> bool:
+    digitos = apenas_digitos(valor)
+    return len(digitos) in (10, 11)
+
+
+def buscar_lead_por_cpf(cpf: str):
+    cpf_limpo = limpar_cpf(cpf)
+    if not cpf_limpo:
+        return None
+    try:
+        resp = (
+            supabase.table(TABELA_LEADS)
+            .select("id,nome_cliente,cpf,telefone,bairro,captador_nome,data_captacao,status_lead")
+            .eq("cpf", cpf_limpo)
+            .limit(1)
+            .execute()
+        )
+        return resp.data[0] if resp.data else None
+    except Exception:
+        return None
+
+
+def preparar_dataframe_exibicao(df: pd.DataFrame) -> pd.DataFrame:
+    df2 = df.copy()
+    if "cpf" in df2.columns:
+        df2["cpf"] = df2["cpf"].fillna("").apply(formatar_cpf)
+    if "telefone" in df2.columns:
+        df2["telefone"] = df2["telefone"].fillna("").apply(formatar_telefone)
+    return df2
 
 
 def buscar_usuario(email: str, senha: str):
@@ -591,7 +647,7 @@ if perfil == "captador":
         with st.form("form_novo_lead_mobile", clear_on_submit=True):
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
             cpf = st.text_input("CPF", placeholder="000.000.000-00")
-            telefone = st.text_input("Telefone *", placeholder="(95) 00000-0000")
+            telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
             bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
             local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
@@ -602,16 +658,28 @@ if perfil == "captador":
         fechar_card_mobile()
 
         if enviar:
+            cpf_limpo = limpar_cpf(cpf)
+            duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
             if not nome_cliente or not telefone or not bairro or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
+            elif not cpf_valido_ou_vazio(cpf):
+                st.error("CPF inválido. Use 11 números ou deixe em branco.")
+            elif not telefone_valido(telefone):
+                st.error("Telefone inválido. Use DDD + número, exemplo: (95) 99999-9999.")
+            elif duplicado:
+                st.warning(
+                    f"⚠️ Cliente já cadastrado: {duplicado.get('nome_cliente','')} | "
+                    f"Captador: {duplicado.get('captador_nome','')} | "
+                    f"Status: {duplicado.get('status_lead','')}"
+                )
             else:
                 dados = {
                     "captador_id": usuario["id"],
                     "captador_nome": usuario["nome"],
                     "unidade": "Boa Vista",
                     "nome_cliente": normalizar_texto(nome_cliente),
-                    "cpf": limpar_cpf(cpf),
-                    "telefone": telefone.strip(),
+                    "cpf": cpf_limpo,
+                    "telefone": formatar_telefone(telefone),
                     "bairro": bairro,
                     "local_captacao": normalizar_texto(local_captacao),
                     "area_acao": area_acao,
@@ -637,7 +705,7 @@ if perfil == "captador":
                 df = df[df["status_lead"].isin(status_filtro)]
             colunas = ["data_captacao", "nome_cliente", "telefone", "bairro", "tipo_beneficio", "status_lead"]
             colunas = [c for c in colunas if c in df.columns]
-            st.dataframe(df[colunas], use_container_width=True, hide_index=True)
+            st.dataframe(preparar_dataframe_exibicao(df[colunas]), use_container_width=True, hide_index=True)
         fechar_card_mobile()
 
     if st.button("Sair"):
@@ -767,7 +835,7 @@ elif pagina == "Minhas Captações":
             "quem_atendeu", "motivo_perda"
         ]
         colunas = [c for c in colunas if c in df.columns]
-        st.dataframe(df[colunas], use_container_width=True, hide_index=True)
+        st.dataframe(preparar_dataframe_exibicao(df[colunas]), use_container_width=True, hide_index=True)
 
         csv = df[colunas].to_csv(index=False).encode("utf-8-sig")
         st.download_button("Baixar CSV", csv, "captacoes.csv", "text/csv")
@@ -814,11 +882,17 @@ elif pagina == "Painel Gestor":
 
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("Funil por Status")
+        st.subheader("Funil de Conversão")
+        funil_df = pd.DataFrame({
+            "Etapa": ["Captados", "Em Atendimento", "Convertidos", "Perdidos"],
+            "Quantidade": [total, atendimento, convertidos, perdidos],
+        })
+        fig = px.funnel(funil_df, x="Quantidade", y="Etapa", text="Quantidade")
+        st.plotly_chart(fig, use_container_width=True)
+
         status_df = df["status_lead"].value_counts().reset_index()
         status_df.columns = ["Status", "Quantidade"]
-        fig = px.bar(status_df, x="Status", y="Quantidade", text="Quantidade")
-        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(status_df, use_container_width=True, hide_index=True)
 
     with col2:
         st.subheader("Captações por Benefício")
@@ -861,7 +935,7 @@ elif pagina == "Painel Gestor":
         st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Base Completa")
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(preparar_dataframe_exibicao(df), use_container_width=True, hide_index=True)
 
 # -------------------------------
 # ATUALIZAR LEAD
