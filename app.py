@@ -1335,13 +1335,15 @@ elif pagina == "Insights V360":
         return base.sort_values(["conversao_%", "convertidos", "leads"], ascending=False)
 
     def card_insight(titulo, valor, subtitulo=""):
-        return f"""
-        <div class='insight-card-v360'>
-            <div class='insight-card-title'>{titulo}</div>
-            <div class='insight-card-value'>{valor}</div>
-            <div class='insight-card-sub'>{subtitulo}</div>
-        </div>
-        """
+        # Importante: retornar HTML sem espaços iniciais.
+        # O Streamlit/Markdown interpreta linhas com 4+ espaços como bloco de código.
+        return (
+            f"<div class='insight-card-v360'>"
+            f"<div class='insight-card-title'>{titulo}</div>"
+            f"<div class='insight-card-value'>{valor}</div>"
+            f"<div class='insight-card-sub'>{subtitulo}</div>"
+            f"</div>"
+        )
 
     top_bairro, top_bairro_qtd, top_bairro_pct = top_valor("bairro")
     top_captador, top_captador_qtd, top_captador_pct = top_valor("captador_nome")
