@@ -312,7 +312,7 @@ def aplicar_css_sidebar_desktop():
 }
 
 .sidebar-v360 {
-    font-size: 52px;
+    font-size: 58px;
     line-height: 1;
     font-weight: 950;
     letter-spacing: -2px;
