@@ -24,7 +24,7 @@ TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v6"
+VERSAO_APP = "operacao-lead-historico-cadastros-v5"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -928,70 +928,37 @@ elif pagina == "Minhas Captações":
         st.download_button("Baixar CSV", csv, "captacoes.csv", "text/csv")
 
 # -------------------------------
-# PAINEL GESTOR - EXECUTIVO V360
+# PAINEL GESTOR
 # -------------------------------
 elif pagina == "Painel Gestor":
-    st.title("📊 Executivo V360 Captação - Boa Vista")
-    st.caption("Visão executiva de captação, conversão, produtividade, bairros, locais e gargalos.")
+    st.title("📊 Dashboard Gestor - Boa Vista")
+    st.caption("Acompanhe captações, produtividade, conversão por bairro e principais gargalos.")
 
-    st.markdown(
-        """
-        <style>
-        .exec-card {
-            background: linear-gradient(145deg, #061A33 0%, #0A3D7A 100%);
-            border: 1px solid rgba(24,189,242,.25);
-            border-radius: 18px;
-            padding: 18px 16px;
-            box-shadow: 0 12px 28px rgba(6,26,51,.12);
-            min-height: 120px;
-        }
-        .exec-card-title { color: #B8D9EF; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; }
-        .exec-card-value { color: white; font-size: 34px; font-weight: 950; margin-top: 8px; line-height: 1; }
-        .exec-card-sub { color: #18BDF2; font-size: 13px; font-weight: 700; margin-top: 10px; }
-        .v360-box {
-            background: #FFFFFF;
-            border: 1px solid #E0E8F0;
-            border-radius: 18px;
-            padding: 18px;
-            box-shadow: 0 8px 24px rgba(6,26,51,0.06);
-            margin-bottom: 16px;
-        }
-        .insight-box {
-            background: linear-gradient(145deg, #EEF8FF 0%, #FFFFFF 100%);
-            border-left: 5px solid #18BDF2;
-            border-radius: 14px;
-            padding: 14px 16px;
-            margin-bottom: 10px;
-            font-weight: 650;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    df = carregar_leads()
 
-    df_original = carregar_leads()
-
-    if df_original.empty:
-        st.info("Nenhum dado encontrado. Cadastre alguns leads de teste para visualizar o executivo.")
+    if df.empty:
+        st.info("Nenhum dado encontrado.")
         st.stop()
 
-    df = df_original.copy()
-    for col in ["status_lead", "captador_nome", "bairro", "tipo_beneficio", "motivo_perda", "local_captacao", "quem_atendeu"]:
+    # Garantias de colunas para evitar erro caso algum campo venha nulo/ausente
+    for col in ["status_lead", "captador_nome", "bairro", "tipo_beneficio", "motivo_perda"]:
         if col not in df.columns:
             df[col] = ""
-        df[col] = df[col].fillna("")
-    df["status_lead"] = df["status_lead"].replace("", "Novo")
-    df["captador_nome"] = df["captador_nome"].replace("", "Não informado")
-    df["bairro"] = df["bairro"].replace("", "Não informado")
-    df["tipo_beneficio"] = df["tipo_beneficio"].replace("", "Não informado")
-    df["local_captacao"] = df["local_captacao"].replace("", "Não informado")
+    df["status_lead"] = df["status_lead"].fillna("Novo")
+    df["captador_nome"] = df["captador_nome"].fillna("Não informado")
+    df["bairro"] = df["bairro"].fillna("Não informado")
+    df["tipo_beneficio"] = df["tipo_beneficio"].fillna("Não informado")
 
     hoje = date.today()
 
-    st.markdown("### 🔎 Filtros Executivos")
+    st.markdown("### 🔎 Filtros")
     colf1, colf2, colf3, colf4 = st.columns(4)
     with colf1:
-        periodo = st.selectbox("Período", ["Últimos 7 dias", "Últimos 30 dias", "Mês atual", "Todos", "Personalizado"], index=1)
+        periodo = st.selectbox(
+            "Período rápido",
+            ["Últimos 7 dias", "Últimos 30 dias", "Mês atual", "Todos", "Personalizado"],
+            index=1,
+        )
     with colf2:
         data_ini = st.date_input("Data inicial", hoje - timedelta(days=30))
     with colf3:
@@ -1000,24 +967,28 @@ elif pagina == "Painel Gestor":
         status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD)
 
     if periodo == "Últimos 7 dias":
-        data_ini, data_fim = hoje - timedelta(days=7), hoje
+        data_ini = hoje - timedelta(days=7)
+        data_fim = hoje
     elif periodo == "Últimos 30 dias":
-        data_ini, data_fim = hoje - timedelta(days=30), hoje
+        data_ini = hoje - timedelta(days=30)
+        data_fim = hoje
     elif periodo == "Mês atual":
-        data_ini, data_fim = hoje.replace(day=1), hoje
+        data_ini = hoje.replace(day=1)
+        data_fim = hoje
     elif periodo == "Todos":
         data_ini = df["data_captacao"].dt.date.min()
         data_fim = df["data_captacao"].dt.date.max()
 
-    colf5, colf6, colf7, colf8 = st.columns(4)
+    colf5, colf6, colf7 = st.columns(3)
     with colf5:
-        captador_filtro = st.multiselect("Captador", sorted(df["captador_nome"].dropna().unique().tolist()))
+        captadores_lista = sorted(df["captador_nome"].dropna().unique().tolist())
+        captador_filtro = st.multiselect("Captador", captadores_lista)
     with colf6:
-        bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()))
+        bairros_lista = sorted(df["bairro"].dropna().unique().tolist())
+        bairro_filtro = st.multiselect("Bairro", bairros_lista)
     with colf7:
-        beneficio_filtro = st.multiselect("Benefício", sorted(df["tipo_beneficio"].dropna().unique().tolist()))
-    with colf8:
-        local_filtro = st.multiselect("Local", sorted(df["local_captacao"].dropna().unique().tolist()))
+        beneficios_lista = sorted(df["tipo_beneficio"].dropna().unique().tolist())
+        beneficio_filtro = st.multiselect("Tipo de benefício", beneficios_lista)
 
     df = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)]
     if status_filtro:
@@ -1028,8 +999,6 @@ elif pagina == "Painel Gestor":
         df = df[df["bairro"].isin(bairro_filtro)]
     if beneficio_filtro:
         df = df[df["tipo_beneficio"].isin(beneficio_filtro)]
-    if local_filtro:
-        df = df[df["local_captacao"].isin(local_filtro)]
 
     if df.empty:
         st.warning("Nenhum lead encontrado com os filtros selecionados.")
@@ -1042,157 +1011,130 @@ elif pagina == "Painel Gestor":
     perdidos = int((df["status_lead"] == "Perdido").sum())
     conversao = (convertidos / total * 100) if total else 0
     perda_pct = (perdidos / total * 100) if total else 0
-    pendentes = novos + atendimento
 
-    def card_exec(titulo, valor, subtitulo=""):
-        st.markdown(
-            f"""
-            <div class="exec-card">
-                <div class="exec-card-title">{titulo}</div>
-                <div class="exec-card-value">{valor}</div>
-                <div class="exec-card-sub">{subtitulo}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("### 📌 Resumo Executivo")
-    c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: card_exec("Leads", total, "captações no período")
-    with c2: card_exec("Pendentes", pendentes, f"{novos} novos | {atendimento} em atendimento")
-    with c3: card_exec("Convertidos", convertidos, f"{conversao:.1f}% de conversão")
-    with c4: card_exec("Perdidos", perdidos, f"{perda_pct:.1f}% de perda")
-    with c5: card_exec("Bairros", df["bairro"].nunique(), "com captação registrada")
-
-    st.markdown("### 💡 Insights V360")
-    insights = []
-    if total:
-        top_bairro = df["bairro"].value_counts().idxmax()
-        top_bairro_qtd = int(df["bairro"].value_counts().max())
-        top_beneficio = df["tipo_beneficio"].value_counts().idxmax()
-        top_beneficio_qtd = int(df["tipo_beneficio"].value_counts().max())
-        top_captador = df["captador_nome"].value_counts().idxmax()
-        top_captador_qtd = int(df["captador_nome"].value_counts().max())
-        top_local = df["local_captacao"].value_counts().idxmax()
-        top_local_qtd = int(df["local_captacao"].value_counts().max())
-        insights.append(f"📍 <b>{top_bairro}</b> é o bairro com mais captações: {top_bairro_qtd} leads.")
-        insights.append(f"🏆 <b>{top_captador}</b> lidera em volume: {top_captador_qtd} leads.")
-        insights.append(f"🎯 <b>{top_beneficio}</b> é o benefício mais captado: {top_beneficio_qtd} leads.")
-        insights.append(f"📌 <b>{top_local}</b> é o local de captação mais produtivo: {top_local_qtd} leads.")
-        if pendentes:
-            insights.append(f"⏳ Existem <b>{pendentes}</b> leads ainda sem conclusão no funil.")
-        if perda_pct >= 30:
-            insights.append(f"⚠️ Atenção: a taxa de perda está em <b>{perda_pct:.1f}%</b> no período filtrado.")
-
-    for item in insights:
-        st.markdown(f"<div class='insight-box'>{item}</div>", unsafe_allow_html=True)
+    st.markdown("### 📌 Resumo Geral")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Leads Captados", total)
+    c2.metric("Novos", novos)
+    c3.metric("Em Atendimento", atendimento)
+    c4.metric("Convertidos", convertidos)
+    c5.metric("Perdidos", perdidos)
+    c6.metric("Conversão", f"{conversao:.1f}%")
 
     st.divider()
 
-    col1, col2 = st.columns([1, 1])
+    # Insights automáticos simples
+    st.markdown("### 💡 Insights V360")
+    insights = []
+    if total > 0:
+        top_bairro = df["bairro"].value_counts().idxmax()
+        qtd_top_bairro = int(df["bairro"].value_counts().max())
+        top_beneficio = df["tipo_beneficio"].value_counts().idxmax()
+        qtd_top_beneficio = int(df["tipo_beneficio"].value_counts().max())
+        top_captador = df["captador_nome"].value_counts().idxmax()
+        qtd_top_captador = int(df["captador_nome"].value_counts().max())
+        insights.append(f"📍 Bairro com mais captações: **{top_bairro}** ({qtd_top_bairro} leads).")
+        insights.append(f"🎯 Benefício mais captado: **{top_beneficio}** ({qtd_top_beneficio} leads).")
+        insights.append(f"🏆 Captador com mais leads: **{top_captador}** ({qtd_top_captador} leads).")
+
+        bairros_conv = df.groupby("bairro").agg(
+            leads=("id", "count"),
+            convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
+        ).reset_index()
+        bairros_conv = bairros_conv[bairros_conv["leads"] >= 3]
+        if not bairros_conv.empty and bairros_conv["convertidos"].sum() > 0:
+            bairros_conv["conversao_%"] = bairros_conv["convertidos"] / bairros_conv["leads"] * 100
+            melhor_bairro = bairros_conv.sort_values(["conversao_%", "convertidos"], ascending=False).iloc[0]
+            insights.append(f"✅ Melhor conversão por bairro: **{melhor_bairro['bairro']}** ({melhor_bairro['conversao_%']:.1f}%).")
+        if perda_pct >= 30:
+            insights.append(f"⚠️ Atenção: perdas estão em **{perda_pct:.1f}%** dos leads filtrados.")
+
+    for item in insights:
+        st.markdown(item)
+
+    st.divider()
+
+    col1, col2 = st.columns(2)
     with col1:
-        st.subheader("🔻 Funil Executivo")
+        st.subheader("Funil de Conversão")
         funil_df = pd.DataFrame({
-            "Etapa": ["Captados", "Novos", "Em atendimento", "Convertidos", "Perdidos"],
-            "Quantidade": [total, novos, atendimento, convertidos, perdidos],
+            "Etapa": ["Captados", "Em Atendimento", "Convertidos", "Perdidos"],
+            "Quantidade": [total, atendimento, convertidos, perdidos],
         })
         fig = px.funnel(funil_df, x="Quantidade", y="Etapa", text="Quantidade")
-        fig.update_layout(height=390, margin=dict(l=10, r=10, t=30, b=10))
         st.plotly_chart(fig, use_container_width=True)
+
     with col2:
-        st.subheader("📈 Evolução diária")
+        st.subheader("Evolução Diária")
         df_dia = df.copy()
         df_dia["dia"] = df_dia["data_captacao"].dt.date
         diario = df_dia.groupby("dia").size().reset_index(name="Leads")
         fig = px.line(diario, x="dia", y="Leads", markers=True)
-        fig.update_layout(height=390, margin=dict(l=10, r=10, t=30, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("### 🏆 Produtividade e Conversão")
-    ranking = df.groupby("captador_nome").agg(
-        leads=("id", "count"),
-        convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
-        em_atendimento=("status_lead", lambda s: (s == "Em atendimento").sum()),
-        perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
-    ).reset_index()
-    ranking["conversao_%"] = (ranking["convertidos"] / ranking["leads"] * 100).round(1)
-    ranking = ranking.sort_values(["convertidos", "leads"], ascending=False)
-
-    col3, col4 = st.columns([1.15, .85])
+    col3, col4 = st.columns(2)
     with col3:
-        fig = px.bar(ranking.head(10), x="leads", y="captador_nome", orientation="h", text="leads", title="Ranking por volume de leads")
-        fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=50, b=10))
+        st.subheader("Ranking de Captadores")
+        ranking = df.groupby("captador_nome").agg(
+            leads=("id", "count"),
+            convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
+            em_atendimento=("status_lead", lambda s: (s == "Em atendimento").sum()),
+            perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
+        ).reset_index()
+        ranking["conversao_%"] = (ranking["convertidos"] / ranking["leads"] * 100).round(1)
+        ranking = ranking.sort_values(["convertidos", "leads"], ascending=False)
+        fig = px.bar(ranking.head(10), x="leads", y="captador_nome", orientation="h", text="leads")
+        fig.update_layout(yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(ranking, use_container_width=True, hide_index=True)
+
     with col4:
-        st.dataframe(ranking.rename(columns={
-            "captador_nome": "Captador", "leads": "Leads", "convertidos": "Convertidos",
-            "em_atendimento": "Em atendimento", "perdidos": "Perdidos", "conversao_%": "Conversão %"
-        }), use_container_width=True, hide_index=True)
-
-    st.markdown("### 📍 Bairros e Locais")
-    bairros = df.groupby("bairro").agg(
-        leads=("id", "count"),
-        convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
-        perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
-    ).reset_index()
-    bairros["conversao_%"] = (bairros["convertidos"] / bairros["leads"] * 100).round(1)
-    bairros = bairros.sort_values("leads", ascending=False)
-
-    locais = df.groupby("local_captacao").agg(
-        leads=("id", "count"),
-        convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
-    ).reset_index()
-    locais["conversao_%"] = (locais["convertidos"] / locais["leads"] * 100).round(1)
-    locais = locais.sort_values("leads", ascending=False)
+        st.subheader("Benefícios Mais Captados")
+        beneficio_df = df["tipo_beneficio"].value_counts().reset_index().head(10)
+        beneficio_df.columns = ["Benefício", "Quantidade"]
+        fig = px.pie(beneficio_df, names="Benefício", values="Quantidade", hole=0.45)
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(beneficio_df, use_container_width=True, hide_index=True)
 
     col5, col6 = st.columns(2)
     with col5:
-        fig = px.bar(bairros.head(15), x="leads", y="bairro", orientation="h", text="leads", title="Top bairros por captação")
-        fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=50, b=10))
+        st.subheader("Bairros com Mais Captação")
+        bairros = df.groupby("bairro").agg(
+            leads=("id", "count"),
+            convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
+            perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
+        ).reset_index()
+        bairros["conversao_%"] = (bairros["convertidos"] / bairros["leads"] * 100).round(1)
+        bairros = bairros.sort_values("leads", ascending=False)
+        fig = px.bar(bairros.head(15), x="leads", y="bairro", orientation="h", text="leads")
+        fig.update_layout(yaxis={"categoryorder": "total ascending"})
         st.plotly_chart(fig, use_container_width=True)
-    with col6:
-        fig = px.bar(locais.head(15), x="leads", y="local_captacao", orientation="h", text="leads", title="Top locais de captação")
-        fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(bairros, use_container_width=True, hide_index=True)
 
-    col7, col8 = st.columns(2)
-    with col7:
-        st.subheader("Bairros com maior conversão")
+    with col6:
+        st.subheader("Bairros com Maior Conversão")
         bairros_conv = bairros[bairros["leads"] >= 3].copy()
         if bairros_conv.empty:
-            st.info("Ainda não há volume suficiente por bairro. Mínimo: 3 leads por bairro.")
+            st.info("Ainda não há volume suficiente por bairro. Mínimo usado: 3 leads por bairro.")
         else:
             bairros_conv = bairros_conv.sort_values(["conversao_%", "convertidos", "leads"], ascending=False).head(15)
-            st.dataframe(bairros_conv.rename(columns={"bairro":"Bairro", "leads":"Leads", "convertidos":"Convertidos", "perdidos":"Perdidos", "conversao_%":"Conversão %"}), use_container_width=True, hide_index=True)
-    with col8:
-        st.subheader("Locais com maior conversão")
-        locais_conv = locais[locais["leads"] >= 3].copy()
-        if locais_conv.empty:
-            st.info("Ainda não há volume suficiente por local. Mínimo: 3 leads por local.")
-        else:
-            locais_conv = locais_conv.sort_values(["conversao_%", "convertidos", "leads"], ascending=False).head(15)
-            st.dataframe(locais_conv.rename(columns={"local_captacao":"Local", "leads":"Leads", "convertidos":"Convertidos", "conversao_%":"Conversão %"}), use_container_width=True, hide_index=True)
-
-    st.markdown("### 🎯 Benefícios e Gargalos")
-    col9, col10 = st.columns(2)
-    with col9:
-        beneficio_df = df["tipo_beneficio"].value_counts().reset_index().head(10)
-        beneficio_df.columns = ["Benefício", "Quantidade"]
-        fig = px.pie(beneficio_df, names="Benefício", values="Quantidade", hole=0.45, title="Benefícios mais captados")
-        fig.update_layout(height=430, margin=dict(l=10, r=10, t=50, b=10))
-        st.plotly_chart(fig, use_container_width=True)
-    with col10:
-        perdas = df[df["status_lead"] == "Perdido"].copy()
-        if perdas.empty:
-            st.info("Nenhum lead perdido no período selecionado.")
-        else:
-            perdas_df = perdas["motivo_perda"].fillna("Não informado").replace("", "Não informado").value_counts().reset_index()
-            perdas_df.columns = ["Motivo", "Quantidade"]
-            fig = px.bar(perdas_df, x="Motivo", y="Quantidade", text="Quantidade", title="Motivos de perda")
-            fig.update_layout(height=430, margin=dict(l=10, r=10, t=50, b=80))
+            fig = px.bar(bairros_conv, x="conversao_%", y="bairro", orientation="h", text="conversao_%")
+            fig.update_layout(yaxis={"categoryorder": "total ascending"})
             st.plotly_chart(fig, use_container_width=True)
+            st.dataframe(bairros_conv, use_container_width=True, hide_index=True)
 
-    st.markdown("### 📋 Base filtrada")
+    st.subheader("Motivos de Perda")
+    perdas = df[df["status_lead"] == "Perdido"].copy()
+    if perdas.empty:
+        st.info("Nenhum lead perdido no período selecionado.")
+    else:
+        perdas_df = perdas["motivo_perda"].fillna("Não informado").replace("", "Não informado").value_counts().reset_index()
+        perdas_df.columns = ["Motivo", "Quantidade"]
+        fig = px.bar(perdas_df, x="Motivo", y="Quantidade", text="Quantidade")
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(perdas_df, use_container_width=True, hide_index=True)
+
+    st.subheader("Base Completa")
     colunas_base = [
         "data_captacao", "nome_cliente", "telefone", "bairro", "local_captacao",
         "area_acao", "tipo_beneficio", "status_lead", "captador_nome",
@@ -1200,8 +1142,9 @@ elif pagina == "Painel Gestor":
     ]
     colunas_base = [c for c in colunas_base if c in df.columns]
     st.dataframe(preparar_dataframe_exibicao(df[colunas_base]), use_container_width=True, hide_index=True)
+
     csv = df[colunas_base].to_csv(index=False).encode("utf-8-sig")
-    st.download_button("⬇️ Baixar base filtrada", csv, "v360_captacao_executivo.csv", "text/csv")
+    st.download_button("⬇️ Baixar base filtrada", csv, "v360_captacao_dashboard.csv", "text/csv")
 
 # -------------------------------
 # ATUALIZAR LEAD - V2
