@@ -20,8 +20,11 @@ st.set_page_config(
 
 TABELA_USUARIOS = "captacao_usuarios"
 TABELA_LEADS = "captacao_leads"
+TABELA_HISTORICO = "captacao_lead_historico"
+TABELA_BENEFICIOS = "captacao_beneficios"
+TABELA_LOCAIS = "captacao_locais_captacao"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "melhorias-cpf-telefone-duplicidade-funil-v4"
+VERSAO_APP = "operacao-lead-historico-cadastros-v5"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -559,6 +562,73 @@ def listar_usuarios_ativos():
         return []
 
 
+def listar_beneficios():
+    try:
+        resp = (
+            supabase.table(TABELA_BENEFICIOS)
+            .select("nome,ativo")
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        itens = [r["nome"] for r in (resp.data or []) if r.get("nome")]
+        return itens or TIPOS_BENEFICIO
+    except Exception:
+        return TIPOS_BENEFICIO
+
+
+def listar_locais_captacao():
+    try:
+        resp = (
+            supabase.table(TABELA_LOCAIS)
+            .select("nome,ativo")
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        return [r["nome"] for r in (resp.data or []) if r.get("nome")]
+    except Exception:
+        return []
+
+
+def criar_beneficio(nome: str):
+    return supabase.table(TABELA_BENEFICIOS).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
+
+
+def criar_local_captacao(nome: str):
+    return supabase.table(TABELA_LOCAIS).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
+
+
+def salvar_historico(lead_id: str, usuario_nome: str, status: str, observacao: str, acao: str = "Atualização"):
+    if not lead_id:
+        return None
+    dados = {
+        "lead_id": lead_id,
+        "usuario_nome": usuario_nome,
+        "status": status,
+        "observacao": observacao.strip() if observacao else "",
+        "acao": acao,
+    }
+    return supabase.table(TABELA_HISTORICO).insert(dados).execute()
+
+
+def carregar_historico(lead_id: str) -> pd.DataFrame:
+    try:
+        resp = (
+            supabase.table(TABELA_HISTORICO)
+            .select("*")
+            .eq("lead_id", lead_id)
+            .order("criado_em", desc=True)
+            .execute()
+        )
+        dfh = pd.DataFrame(resp.data or [])
+        if not dfh.empty and "criado_em" in dfh.columns:
+            dfh["criado_em"] = pd.to_datetime(dfh["criado_em"], errors="coerce")
+        return dfh
+    except Exception:
+        return pd.DataFrame()
+
+
 def carregar_leads():
     try:
         resp = (
@@ -649,9 +719,14 @@ if perfil == "captador":
             cpf = st.text_input("CPF", placeholder="000.000.000-00")
             telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
             bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
-            local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
+            locais_opcoes = listar_locais_captacao()
+            if locais_opcoes:
+                local_sel = st.selectbox("Local da captação *", ["Outro / digitar"] + locais_opcoes)
+                local_captacao = st.text_input("Digite o local" if local_sel == "Outro / digitar" else "Confirmar local", value="" if local_sel == "Outro / digitar" else local_sel, placeholder="Ex.: Feira, praça, INSS, ação social...")
+            else:
+                local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
-            tipo_beneficio = st.selectbox("Tipo de benefício *", TIPOS_BENEFICIO)
+            tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
             enviar = st.form_submit_button("💾 SALVAR LEAD")
             st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
@@ -688,7 +763,10 @@ if perfil == "captador":
                     "status_lead": "Novo",
                 }
                 try:
-                    salvar_lead(dados)
+                    resp = salvar_lead(dados)
+                    novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
+                    if novo_id:
+                        salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
                     st.success("Lead salvo com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao salvar lead: {e}")
@@ -747,6 +825,7 @@ if pode_ver_todos(usuario):
     opcoes_base.update({
         "📊 Painel Gestor": "Painel Gestor",
         "✏️ Atualizar Lead": "Atualizar Lead",
+        "⚙️ Cadastros": "Cadastros",
         "👥 Usuários": "Usuários",
     })
 
@@ -774,9 +853,14 @@ if pagina == "Novo Lead":
             telefone = st.text_input("Telefone *")
             bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
         with col2:
-            local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
+            locais_opcoes = listar_locais_captacao()
+            if locais_opcoes:
+                local_sel = st.selectbox("Local da captação *", ["Outro / digitar"] + locais_opcoes)
+                local_captacao = st.text_input("Digite o local" if local_sel == "Outro / digitar" else "Confirmar local", value="" if local_sel == "Outro / digitar" else local_sel, placeholder="Ex.: Feira, praça, INSS, ação social...")
+            else:
+                local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
-            tipo_beneficio = st.selectbox("Tipo de benefício *", TIPOS_BENEFICIO)
+            tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
 
         enviar = st.form_submit_button("Salvar Lead")
@@ -800,7 +884,10 @@ if pagina == "Novo Lead":
                 "status_lead": "Novo",
             }
             try:
-                salvar_lead(dados)
+                resp = salvar_lead(dados)
+                novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
+                if novo_id:
+                    salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
                 st.success("Lead salvo com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao salvar lead: {e}")
@@ -1060,39 +1147,87 @@ elif pagina == "Painel Gestor":
     st.download_button("⬇️ Baixar base filtrada", csv, "v360_captacao_dashboard.csv", "text/csv")
 
 # -------------------------------
-# ATUALIZAR LEAD
+# ATUALIZAR LEAD - V2
 # -------------------------------
 elif pagina == "Atualizar Lead":
     st.title("✏️ Atualizar Lead")
+    st.caption("Busque o lead, atualize o funil e registre o histórico do atendimento.")
     df = carregar_leads()
 
     if df.empty:
         st.info("Nenhum lead encontrado.")
         st.stop()
 
-    df["label"] = df["nome_cliente"].fillna("") + " | " + df["telefone"].fillna("") + " | " + df["bairro"].fillna("") + " | " + df["status_lead"].fillna("")
-    lead_label = st.selectbox("Selecione o lead", df["label"].tolist())
-    lead = df[df["label"] == lead_label].iloc[0]
+    termo = st.text_input("Pesquisar por nome, CPF, telefone ou captador", placeholder="Digite parte do nome, CPF, telefone ou captador...")
+    df_busca = df.copy()
+    if termo:
+        termo_norm = termo.lower().strip()
+        cols_busca = ["nome_cliente", "cpf", "telefone", "captador_nome", "bairro", "status_lead"]
+        mask = pd.Series(False, index=df_busca.index)
+        for c in cols_busca:
+            if c in df_busca.columns:
+                mask = mask | df_busca[c].fillna("").astype(str).str.lower().str.contains(termo_norm, na=False)
+        df_busca = df_busca[mask]
 
-    with st.form("form_atualizar_lead"):
-        status_atual = lead.get("status_lead", "Novo")
-        status_idx = STATUS_LEAD.index(status_atual) if status_atual in STATUS_LEAD else 0
-        status = st.selectbox("Status do Lead", STATUS_LEAD, index=status_idx)
+    if df_busca.empty:
+        st.warning("Nenhum lead encontrado para essa busca.")
+        st.stop()
 
-        usuarios = listar_usuarios_ativos()
-        nomes_usuarios = [u["nome"] for u in usuarios]
-        quem_atendeu_atual = lead.get("quem_atendeu") or ""
-        lista_atendentes = [""] + nomes_usuarios
-        idx_atendente = lista_atendentes.index(quem_atendeu_atual) if quem_atendeu_atual in lista_atendentes else 0
-        quem_atendeu = st.selectbox("Quem atendeu depois", lista_atendentes, index=idx_atendente)
+    df_busca["label"] = (
+        df_busca["nome_cliente"].fillna("") + " | " +
+        df_busca["telefone"].fillna("") + " | " +
+        df_busca["bairro"].fillna("") + " | " +
+        df_busca["status_lead"].fillna("")
+    )
+    lead_label = st.selectbox("Selecione o lead", df_busca["label"].tolist())
+    lead = df_busca[df_busca["label"] == lead_label].iloc[0]
+    lead_id = str(lead["id"])
 
-        motivo_atual = lead.get("motivo_perda") or ""
-        idx_motivo = MOTIVOS_PERDA.index(motivo_atual) if motivo_atual in MOTIVOS_PERDA else 0
-        motivo_perda = st.selectbox("Motivo da perda", MOTIVOS_PERDA, index=idx_motivo)
+    st.markdown("### Ficha do Lead")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Cliente", lead.get("nome_cliente", ""))
+    c2.metric("Status", lead.get("status_lead", "Novo"))
+    c3.metric("Captador", lead.get("captador_nome", ""))
 
-        observacao = st.text_area("Observação", value=lead.get("observacao") or "")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.write(f"**CPF:** {formatar_cpf(lead.get('cpf','') or '')}")
+        st.write(f"**Telefone:** {formatar_telefone(lead.get('telefone','') or '')}")
+        st.write(f"**Bairro:** {lead.get('bairro','')}")
+        st.write(f"**Local:** {lead.get('local_captacao','')}")
+    with col_b:
+        st.write(f"**Benefício:** {lead.get('tipo_beneficio','')}")
+        st.write(f"**Área:** {lead.get('area_acao','')}")
+        data_cap = lead.get("data_captacao")
+        st.write(f"**Data captação:** {data_cap.strftime('%d/%m/%Y %H:%M') if hasattr(data_cap, 'strftime') else data_cap}")
+        st.write(f"**Quem atendeu:** {lead.get('quem_atendeu','') or 'Ainda não informado'}")
 
-        salvar = st.form_submit_button("Salvar Atualização")
+    st.markdown("### Atualização do Atendimento")
+    with st.form("form_atualizar_lead_v2"):
+        col1, col2 = st.columns(2)
+        with col1:
+            status_atual = lead.get("status_lead", "Novo")
+            status_idx = STATUS_LEAD.index(status_atual) if status_atual in STATUS_LEAD else 0
+            status = st.selectbox("Status do Lead", STATUS_LEAD, index=status_idx)
+
+            usuarios = listar_usuarios_ativos()
+            nomes_usuarios = [u["nome"] for u in usuarios]
+            quem_atendeu_atual = lead.get("quem_atendeu") or ""
+            lista_atendentes = [""] + nomes_usuarios
+            idx_atendente = lista_atendentes.index(quem_atendeu_atual) if quem_atendeu_atual in lista_atendentes else 0
+            quem_atendeu = st.selectbox("Quem atendeu", lista_atendentes, index=idx_atendente)
+        with col2:
+            motivo_atual = lead.get("motivo_perda") or ""
+            idx_motivo = MOTIVOS_PERDA.index(motivo_atual) if motivo_atual in MOTIVOS_PERDA else 0
+            motivo_perda = st.selectbox("Motivo da perda", MOTIVOS_PERDA, index=idx_motivo)
+            observacao_atual = lead.get("observacao") or ""
+            observacao_principal = st.text_area("Observação principal do lead", value=observacao_atual)
+
+        observacao_atendimento = st.text_area(
+            "Nova observação do atendimento / histórico",
+            placeholder="Ex.: Cliente respondeu, documentos solicitados, atendimento agendado..."
+        )
+        salvar = st.form_submit_button("💾 Salvar Atualização")
 
     if salvar:
         if status == "Perdido" and not motivo_perda:
@@ -1102,13 +1237,83 @@ elif pagina == "Atualizar Lead":
                 "status_lead": status,
                 "quem_atendeu": quem_atendeu or None,
                 "motivo_perda": motivo_perda if status == "Perdido" else None,
-                "observacao": observacao.strip()
+                "observacao": observacao_principal.strip(),
             }
+            if status == "Convertido" and lead.get("status_lead") != "Convertido":
+                dados["data_conversao"] = "now()"
+                dados["responsavel_conversao"] = quem_atendeu or usuario["nome"]
+
+            # Supabase não aceita now() como string para timestamptz via update; grava pelo banco se coluna existir usando datetime ISO.
+            if dados.get("data_conversao") == "now()":
+                from datetime import datetime, timezone
+                dados["data_conversao"] = datetime.now(timezone.utc).isoformat()
+
             try:
-                atualizar_lead(str(lead["id"]), dados)
-                st.success("Lead atualizado com sucesso!")
+                atualizar_lead(lead_id, dados)
+                texto_hist = observacao_atendimento.strip() or f"Status alterado para {status}."
+                salvar_historico(lead_id, usuario["nome"], status, texto_hist, "Atualização de atendimento")
+                st.success("Lead atualizado e histórico registrado com sucesso!")
+                st.rerun()
             except Exception as e:
                 st.error(f"Erro ao atualizar lead: {e}")
+
+    st.markdown("### Histórico do Lead")
+    hist = carregar_historico(lead_id)
+    if hist.empty:
+        st.info("Nenhum histórico registrado para este lead.")
+    else:
+        hist_exibir = hist.copy()
+        if "criado_em" in hist_exibir.columns:
+            hist_exibir["criado_em"] = hist_exibir["criado_em"].dt.strftime("%d/%m/%Y %H:%M")
+        cols = ["criado_em", "acao", "usuario_nome", "status", "observacao"]
+        cols = [c for c in cols if c in hist_exibir.columns]
+        st.dataframe(hist_exibir[cols], use_container_width=True, hide_index=True)
+
+# -------------------------------
+# CADASTROS
+# -------------------------------
+elif pagina == "Cadastros":
+    st.title("⚙️ Cadastros")
+    st.caption("Cadastre benefícios e locais de captação sem precisar alterar o código.")
+
+    tab1, tab2 = st.tabs(["Benefícios", "Locais de Captação"])
+    with tab1:
+        st.subheader("Benefícios")
+        with st.form("form_novo_beneficio"):
+            nome_beneficio = st.text_input("Novo benefício", placeholder="Ex.: Aposentadoria por invalidez")
+            salvar_beneficio = st.form_submit_button("Adicionar benefício")
+        if salvar_beneficio:
+            if not nome_beneficio.strip():
+                st.error("Informe o nome do benefício.")
+            else:
+                try:
+                    criar_beneficio(nome_beneficio)
+                    st.success("Benefício cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar benefício: {e}")
+        st.dataframe(pd.DataFrame({"Benefícios ativos": listar_beneficios()}), use_container_width=True, hide_index=True)
+
+    with tab2:
+        st.subheader("Locais de Captação")
+        with st.form("form_novo_local"):
+            nome_local = st.text_input("Novo local", placeholder="Ex.: Feira do Nova Cidade")
+            salvar_local = st.form_submit_button("Adicionar local")
+        if salvar_local:
+            if not nome_local.strip():
+                st.error("Informe o nome do local.")
+            else:
+                try:
+                    criar_local_captacao(nome_local)
+                    st.success("Local cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar local: {e}")
+        locais = listar_locais_captacao()
+        if locais:
+            st.dataframe(pd.DataFrame({"Locais ativos": locais}), use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum local cadastrado ainda. O captador poderá digitar livremente até você cadastrar os principais locais.")
 
 # -------------------------------
 # USUÁRIOS
