@@ -613,7 +613,7 @@ if st.session_state.usuario is None:
         else:
             st.error("Usuário ou senha inválidos, ou usuário inativo.")
 
-    st.info("Teste: gestor@molina.com / 123456 ou captador@molina.com / 123456")
+    st.info("Utilize seu usuário e senha fornecidos pelo administrador.")
     st.stop()
 
 usuario = st.session_state.usuario
