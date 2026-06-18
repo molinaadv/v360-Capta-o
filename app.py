@@ -24,7 +24,7 @@ TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v6"
+VERSAO_APP = "executivo-v360-captação-v7-insights-menu"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -823,7 +823,8 @@ opcoes_base = {
 }
 if pode_ver_todos(usuario):
     opcoes_base.update({
-        "📊 Painel Gestor": "Painel Gestor",
+        "📊 Dashboard Executivo": "Painel Gestor",
+        "💡 Insights V360": "Insights V360",
         "✏️ Atualizar Lead": "Atualizar Lead",
         "⚙️ Cadastros": "Cadastros",
         "👥 Usuários": "Usuários",
@@ -1150,32 +1151,8 @@ elif pagina == "Painel Gestor":
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(bairros_conv.rename(columns={"bairro":"Bairro", "leads":"Leads", "convertidos":"Convertidos", "perdidos":"Perdidos", "conversao_%":"Conversão %"}), use_container_width=True, hide_index=True)
 
-    # 8 - Motivos perda
-    st.markdown("<div class='v360-section-title'>8. Motivos de Perda</div>", unsafe_allow_html=True)
-    perdas = df[df["status_lead"] == "Perdido"].copy()
-    if perdas.empty:
-        st.info("Nenhum lead perdido no período selecionado.")
-    else:
-        perdas_df = perdas["motivo_perda"].fillna("Não informado").replace("", "Não informado").value_counts().reset_index()
-        perdas_df.columns = ["Motivo", "Quantidade"]
-        fig = px.bar(perdas_df, x="Quantidade", y="Motivo", orientation="h", text="Quantidade")
-        fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=390, margin=dict(l=10, r=10, t=30, b=10))
-        st.plotly_chart(fig, use_container_width=True)
-
-    # 9 - Base completa
-    st.markdown("<div class='v360-section-title'>9. Base Completa</div>", unsafe_allow_html=True)
-    colunas_base = [
-        "data_captacao", "nome_cliente", "cpf", "telefone", "bairro", "local_captacao",
-        "area_acao", "tipo_beneficio", "status_lead", "captador_nome",
-        "quem_atendeu", "motivo_perda", "observacao"
-    ]
-    colunas_base = [c for c in colunas_base if c in df.columns]
-    st.dataframe(preparar_dataframe_exibicao(df[colunas_base]), use_container_width=True, hide_index=True)
-    csv = df[colunas_base].to_csv(index=False).encode("utf-8-sig")
-    st.download_button("⬇️ Baixar base filtrada", csv, "v360_captacao_executivo.csv", "text/csv")
-
-    # 10 - Locais captação
-    st.markdown("<div class='v360-section-title'>10. Locais de Captação</div>", unsafe_allow_html=True)
+    # 8 - Locais captação
+    st.markdown("<div class='v360-section-title'>8. Locais de Captação</div>", unsafe_allow_html=True)
     col7, col8 = st.columns(2)
     with col7:
         fig = px.bar(locais.head(15), x="leads", y="local_captacao", orientation="h", text="leads", title="Locais com mais leads")
@@ -1192,28 +1169,312 @@ elif pagina == "Painel Gestor":
                 "perdidos":"Perdidos", "conversao_%":"Conversão %"
             }), use_container_width=True, hide_index=True)
 
-    # 11 - Insights
-    st.markdown("<div class='v360-section-title'>11. Insights V360</div>", unsafe_allow_html=True)
-    insights = []
-    if total:
-        top_bairro = df["bairro"].value_counts().idxmax()
-        top_bairro_qtd = int(df["bairro"].value_counts().max())
-        top_beneficio = df["tipo_beneficio"].value_counts().idxmax()
-        top_beneficio_qtd = int(df["tipo_beneficio"].value_counts().max())
-        top_captador = df["captador_nome"].value_counts().idxmax()
-        top_captador_qtd = int(df["captador_nome"].value_counts().max())
-        top_local = df["local_captacao"].value_counts().idxmax()
-        top_local_qtd = int(df["local_captacao"].value_counts().max())
-        insights.append(f"📍 <b>{top_bairro}</b> é o bairro com mais captações: {top_bairro_qtd} leads.")
-        insights.append(f"🏆 <b>{top_captador}</b> lidera em volume: {top_captador_qtd} leads.")
-        insights.append(f"🎯 <b>{top_beneficio}</b> é o benefício mais captado: {top_beneficio_qtd} leads.")
-        insights.append(f"📌 <b>{top_local}</b> é o local de captação mais produtivo: {top_local_qtd} leads.")
-        if novos + atendimento:
-            insights.append(f"⏳ Existem <b>{novos + atendimento}</b> leads ainda sem conclusão no funil.")
-        if perda_pct >= 30:
-            insights.append(f"⚠️ Atenção: a taxa de perda está em <b>{perda_pct:.1f}%</b> no período filtrado.")
-    for item in insights:
-        st.markdown(f"<div class='insight-box'>{item}</div>", unsafe_allow_html=True)
+    # 9 - Motivos perda
+    st.markdown("<div class='v360-section-title'>9. Motivos de Perda</div>", unsafe_allow_html=True)
+    perdas = df[df["status_lead"] == "Perdido"].copy()
+    if perdas.empty:
+        st.info("Nenhum lead perdido no período selecionado.")
+    else:
+        perdas_df = perdas["motivo_perda"].fillna("Não informado").replace("", "Não informado").value_counts().reset_index()
+        perdas_df.columns = ["Motivo", "Quantidade"]
+        fig = px.bar(perdas_df, x="Quantidade", y="Motivo", orientation="h", text="Quantidade")
+        fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=390, margin=dict(l=10, r=10, t=30, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # 10 - Base completa
+    st.markdown("<div class='v360-section-title'>10. Base Completa</div>", unsafe_allow_html=True)
+    colunas_base = [
+        "data_captacao", "nome_cliente", "cpf", "telefone", "bairro", "local_captacao",
+        "area_acao", "tipo_beneficio", "status_lead", "captador_nome",
+        "quem_atendeu", "motivo_perda", "observacao"
+    ]
+    colunas_base = [c for c in colunas_base if c in df.columns]
+    st.dataframe(preparar_dataframe_exibicao(df[colunas_base]), use_container_width=True, hide_index=True)
+    csv = df[colunas_base].to_csv(index=False).encode("utf-8-sig")
+    st.download_button("⬇️ Baixar base filtrada", csv, "v360_captacao_executivo.csv", "text/csv")
+
+# -------------------------------
+# INSIGHTS V360
+# -------------------------------
+elif pagina == "Insights V360":
+    st.title("💡 Insights V360")
+    st.caption("Boa Vista • Inteligência comercial, oportunidades e alertas da captação.")
+
+    st.markdown(
+        """
+        <style>
+        .insights-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+        .insight-card-v360 {
+            background: linear-gradient(145deg, #FFFFFF 0%, #F4FAFF 100%);
+            border: 1px solid #DCE8F4;
+            border-left: 5px solid #18BDF2;
+            border-radius: 18px;
+            padding: 16px 16px;
+            box-shadow: 0 10px 24px rgba(6,26,51,.07);
+            min-height: 118px;
+        }
+        .insight-card-title { color:#061A33; font-size:14px; font-weight:950; margin-bottom:8px; }
+        .insight-card-value { color:#0A3D7A; font-size:22px; font-weight:950; line-height:1.1; }
+        .insight-card-sub { color:#65748A; font-size:13px; font-weight:700; margin-top:8px; }
+        .alert-card {
+            background:#FFF8E8;
+            border:1px solid #FFE4A3;
+            border-left:5px solid #F59E0B;
+            border-radius:16px;
+            padding:14px 16px;
+            margin-bottom:10px;
+            font-weight:700;
+        }
+        .op-card {
+            background:#EEFDF7;
+            border:1px solid #BDEEDB;
+            border-left:5px solid #10B981;
+            border-radius:16px;
+            padding:14px 16px;
+            margin-bottom:10px;
+            font-weight:700;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    df_original = carregar_leads()
+    if df_original.empty:
+        st.info("Nenhum dado encontrado. Cadastre alguns leads para gerar os insights.")
+        st.stop()
+
+    df = df_original.copy()
+    for col in ["status_lead", "captador_nome", "bairro", "tipo_beneficio", "motivo_perda", "local_captacao", "quem_atendeu"]:
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("")
+    df["status_lead"] = df["status_lead"].replace("", "Novo")
+    df["captador_nome"] = df["captador_nome"].replace("", "Não informado")
+    df["bairro"] = df["bairro"].replace("", "Não informado")
+    df["tipo_beneficio"] = df["tipo_beneficio"].replace("", "Não informado")
+    df["local_captacao"] = df["local_captacao"].replace("", "Não informado")
+
+    hoje = date.today()
+    st.markdown("### 🔎 Filtros dos Insights")
+    colf1, colf2, colf3, colf4 = st.columns(4)
+    with colf1:
+        periodo = st.selectbox("Período", ["Últimos 7 dias", "Últimos 30 dias", "Mês atual", "Todos", "Personalizado"], index=1, key="ins_periodo")
+    with colf2:
+        data_ini = st.date_input("Data inicial", hoje - timedelta(days=30), key="ins_data_ini")
+    with colf3:
+        data_fim = st.date_input("Data final", hoje, key="ins_data_fim")
+    with colf4:
+        status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD, key="ins_status")
+
+    if periodo == "Últimos 7 dias":
+        data_ini, data_fim = hoje - timedelta(days=7), hoje
+    elif periodo == "Últimos 30 dias":
+        data_ini, data_fim = hoje - timedelta(days=30), hoje
+    elif periodo == "Mês atual":
+        data_ini, data_fim = hoje.replace(day=1), hoje
+    elif periodo == "Todos":
+        data_ini = df["data_captacao"].dt.date.min()
+        data_fim = df["data_captacao"].dt.date.max()
+
+    colf5, colf6, colf7, colf8 = st.columns(4)
+    with colf5:
+        captador_filtro = st.multiselect("Captador", sorted(df["captador_nome"].dropna().unique().tolist()), key="ins_captador")
+    with colf6:
+        bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()), key="ins_bairro")
+    with colf7:
+        beneficio_filtro = st.multiselect("Benefício", sorted(df["tipo_beneficio"].dropna().unique().tolist()), key="ins_beneficio")
+    with colf8:
+        local_filtro = st.multiselect("Local", sorted(df["local_captacao"].dropna().unique().tolist()), key="ins_local")
+
+    df = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)]
+    if status_filtro:
+        df = df[df["status_lead"].isin(status_filtro)]
+    if captador_filtro:
+        df = df[df["captador_nome"].isin(captador_filtro)]
+    if bairro_filtro:
+        df = df[df["bairro"].isin(bairro_filtro)]
+    if beneficio_filtro:
+        df = df[df["tipo_beneficio"].isin(beneficio_filtro)]
+    if local_filtro:
+        df = df[df["local_captacao"].isin(local_filtro)]
+
+    if df.empty:
+        st.warning("Nenhum lead encontrado com os filtros selecionados.")
+        st.stop()
+
+    total = len(df)
+    convertidos = int((df["status_lead"] == "Convertido").sum())
+    perdidos = int((df["status_lead"] == "Perdido").sum())
+    conversao = (convertidos / total * 100) if total else 0
+    perda_pct = (perdidos / total * 100) if total else 0
+
+    def top_valor(coluna):
+        vc = df[coluna].replace("", "Não informado").value_counts()
+        if vc.empty:
+            return "Sem dados", 0, 0
+        nome = vc.index[0]
+        qtd = int(vc.iloc[0])
+        pct = (qtd / total * 100) if total else 0
+        return nome, qtd, pct
+
+    def agg_conversao(campo, minimo=3):
+        base = df.groupby(campo).agg(
+            leads=("id", "count"),
+            convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
+        ).reset_index()
+        if base.empty:
+            return base
+        base["conversao_%"] = (base["convertidos"] / base["leads"] * 100).round(1)
+        base = base[base["leads"] >= minimo]
+        return base.sort_values(["conversao_%", "convertidos", "leads"], ascending=False)
+
+    def card_insight(titulo, valor, subtitulo=""):
+        return f"""
+        <div class='insight-card-v360'>
+            <div class='insight-card-title'>{titulo}</div>
+            <div class='insight-card-value'>{valor}</div>
+            <div class='insight-card-sub'>{subtitulo}</div>
+        </div>
+        """
+
+    top_bairro, top_bairro_qtd, top_bairro_pct = top_valor("bairro")
+    top_captador, top_captador_qtd, top_captador_pct = top_valor("captador_nome")
+    top_beneficio, top_beneficio_qtd, top_beneficio_pct = top_valor("tipo_beneficio")
+    top_local, top_local_qtd, top_local_pct = top_valor("local_captacao")
+
+    perdas = df[df["status_lead"] == "Perdido"].copy()
+    if perdas.empty:
+        top_motivo, top_motivo_qtd, top_motivo_pct = "Sem perdas", 0, 0
+    else:
+        motivo_vc = perdas["motivo_perda"].fillna("Não informado").replace("", "Não informado").value_counts()
+        top_motivo = motivo_vc.index[0]
+        top_motivo_qtd = int(motivo_vc.iloc[0])
+        top_motivo_pct = (top_motivo_qtd / len(perdas) * 100) if len(perdas) else 0
+
+    st.markdown("## 📌 Resumo Executivo")
+    st.markdown(
+        "<div class='insights-grid'>" +
+        card_insight("🏆 Bairro líder em captação", top_bairro, f"{top_bairro_qtd} leads • {top_bairro_pct:.1f}% do período") +
+        card_insight("🥇 Captador destaque", top_captador, f"{top_captador_qtd} leads • {top_captador_pct:.1f}% do período") +
+        card_insight("📋 Benefício mais procurado", top_beneficio, f"{top_beneficio_qtd} leads • {top_beneficio_pct:.1f}% do período") +
+        card_insight("🏪 Local mais produtivo", top_local, f"{top_local_qtd} leads • {top_local_pct:.1f}% do período") +
+        card_insight("⚠️ Principal motivo de perda", top_motivo, f"{top_motivo_qtd} ocorrências • {top_motivo_pct:.1f}% das perdas") +
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("## 📈 Inteligência Comercial")
+    df_int = df.copy()
+    df_int["dia_semana_num"] = df_int["data_captacao"].dt.weekday
+    dias_map = {0:"Segunda-feira", 1:"Terça-feira", 2:"Quarta-feira", 3:"Quinta-feira", 4:"Sexta-feira", 5:"Sábado", 6:"Domingo"}
+    df_int["dia_semana"] = df_int["dia_semana_num"].map(dias_map)
+
+    def melhor_bairro_beneficio(texto_beneficio):
+        sub = df[df["tipo_beneficio"].str.contains(texto_beneficio, case=False, na=False)].copy()
+        if sub.empty:
+            return "Sem dados", "Nenhum lead encontrado"
+        sub_conv = sub[sub["status_lead"] == "Convertido"]
+        base = sub_conv if not sub_conv.empty else sub
+        vc = base["bairro"].value_counts()
+        nome = vc.index[0]
+        qtd = int(vc.iloc[0])
+        label = "contratos" if not sub_conv.empty else "leads"
+        return nome, f"{qtd} {label} de {texto_beneficio}"
+
+    bairro_loas, sub_loas = melhor_bairro_beneficio("LOAS")
+    bairro_aux, sub_aux = melhor_bairro_beneficio("Auxílio")
+
+    dia_vc = df_int["dia_semana"].value_counts()
+    melhor_dia = dia_vc.index[0] if not dia_vc.empty else "Sem dados"
+    melhor_dia_qtd = int(dia_vc.iloc[0]) if not dia_vc.empty else 0
+
+    mes_atual = hoje.replace(day=1)
+    df_mes = df_original.copy()
+    if not df_mes.empty:
+        df_mes["data_captacao"] = pd.to_datetime(df_mes["data_captacao"], errors="coerce")
+        df_mes = df_mes[df_mes["data_captacao"].dt.date >= mes_atual]
+    conv_mes = df_mes[df_mes["status_lead"] == "Convertido"] if not df_mes.empty and "status_lead" in df_mes.columns else pd.DataFrame()
+    if conv_mes.empty:
+        melhor_captador_mes, melhor_captador_mes_sub = "Sem conversões", "Nenhum contrato no mês atual"
+    else:
+        vc = conv_mes["captador_nome"].fillna("Não informado").replace("", "Não informado").value_counts()
+        melhor_captador_mes = vc.index[0]
+        melhor_captador_mes_sub = f"{int(vc.iloc[0])} conversões no mês"
+
+    locais_conv = agg_conversao("local_captacao")
+    bairros_conv = agg_conversao("bairro")
+    benef_conv = agg_conversao("tipo_beneficio")
+    capt_conv = agg_conversao("captador_nome")
+
+    def top_conv(base, campo, nome_vazio="Sem dados"):
+        if base.empty:
+            return nome_vazio, "Volume mínimo: 3 leads"
+        linha = base.iloc[0]
+        return linha[campo], f"{linha['conversao_%']:.1f}% • {int(linha['convertidos'])}/{int(linha['leads'])} convertidos"
+
+    local_tx, local_tx_sub = top_conv(locais_conv, "local_captacao")
+    bairro_tx, bairro_tx_sub = top_conv(bairros_conv, "bairro")
+    beneficio_tx, beneficio_tx_sub = top_conv(benef_conv, "tipo_beneficio")
+    captador_tx, captador_tx_sub = top_conv(capt_conv, "captador_nome")
+
+    st.markdown(
+        "<div class='insights-grid'>" +
+        card_insight("📈 Melhor bairro para LOAS", bairro_loas, sub_loas) +
+        card_insight("📈 Melhor bairro para Auxílio Doença", bairro_aux, sub_aux) +
+        card_insight("📈 Melhor dia da semana para captação", melhor_dia, f"{melhor_dia_qtd} leads no período") +
+        card_insight("📈 Melhor captador do mês", melhor_captador_mes, melhor_captador_mes_sub) +
+        card_insight("📈 Local com maior taxa de conversão", local_tx, local_tx_sub) +
+        card_insight("📈 Bairro com maior conversão geral", bairro_tx, bairro_tx_sub) +
+        card_insight("📈 Benefício com maior conversão", beneficio_tx, beneficio_tx_sub) +
+        card_insight("📈 Captador com maior taxa de conversão", captador_tx, captador_tx_sub) +
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("## 🎯 Oportunidades")
+    oportunidades = []
+    if not bairros_conv.empty:
+        bairros_volume = df.groupby("bairro").size().reset_index(name="leads").sort_values("leads", ascending=False)
+        top_vol_bairro = bairros_volume.iloc[0]
+        conv_top_vol = bairros_conv[bairros_conv["bairro"] == top_vol_bairro["bairro"]]
+        if not conv_top_vol.empty and float(conv_top_vol.iloc[0]["conversao_%"]) < conversao:
+            oportunidades.append(
+                f"<b>{top_vol_bairro['bairro']}</b> possui alto volume de leads, mas conversão abaixo da média. Recomenda-se revisar abordagem e acompanhamento."
+            )
+    if not locais_conv.empty:
+        linha = locais_conv.iloc[0]
+        oportunidades.append(
+            f"<b>{linha['local_captacao']}</b> apresenta a maior taxa de conversão ({linha['conversao_%']:.1f}%). Recomenda-se priorizar novas ações nesse local."
+        )
+    if not benef_conv.empty:
+        linha = benef_conv.iloc[0]
+        oportunidades.append(
+            f"<b>{linha['tipo_beneficio']}</b> é o benefício com melhor conversão ({linha['conversao_%']:.1f}%). Pode ser prioridade em campanhas e roteiros de captação."
+        )
+    if not oportunidades:
+        oportunidades.append("Ainda não há volume suficiente para oportunidades avançadas. Continue cadastrando leads para o V360 identificar padrões.")
+    for item in oportunidades:
+        st.markdown(f"<div class='op-card'>🎯 {item}</div>", unsafe_allow_html=True)
+
+    st.markdown("## 🚨 Alertas")
+    alertas = []
+    if perda_pct >= 30:
+        alertas.append(f"Taxa de perda em <b>{perda_pct:.1f}%</b> no período filtrado. Verificar motivos de perda e velocidade de atendimento.")
+    pendentes = int(((df["status_lead"] == "Novo") | (df["status_lead"] == "Em atendimento")).sum())
+    if pendentes >= max(5, int(total * 0.4)):
+        alertas.append(f"Existem <b>{pendentes}</b> leads ainda sem conclusão. Pode haver gargalo no atendimento posterior.")
+    if total < 10:
+        alertas.append("Volume de dados ainda baixo. Alguns insights podem mudar bastante com novos cadastros.")
+    if not alertas:
+        alertas.append("Nenhum alerta crítico identificado no período filtrado.")
+    for item in alertas:
+        st.markdown(f"<div class='alert-card'>🚨 {item}</div>", unsafe_allow_html=True)
 
 # -------------------------------
 # ATUALIZAR LEAD - V2
