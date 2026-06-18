@@ -24,7 +24,7 @@ TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v7-insights-menu"
+VERSAO_APP = "executivo-v360-captação-v8-logo-sidebar"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -305,27 +305,30 @@ def aplicar_css_sidebar_desktop():
             color: #FFFFFF !important;
         }
         .sidebar-brand {
-    text-align: center;
-    padding: 20px 8px 18px 8px;
-    margin: 0 0 16px 0;
-    border-bottom: 1px solid rgba(255,255,255,.16);
-}
-
-.sidebar-v360 {
-    font-size: 58px;
-    line-height: 1;
-    font-weight: 950;
-    letter-spacing: -2px;
-    color: #FFFFFF !important;
-}
-
-.sidebar-cap {
-    margin-top: 10px;
-    color: #18BDF2 !important;
-    font-size: 18px;
-    font-weight: 950;
-    letter-spacing: 5px;
-}
+            text-align: center;
+            padding: 20px 8px 18px 8px;
+            margin: 0 0 16px 0;
+            border-bottom: 1px solid rgba(255,255,255,.16);
+        }
+        .sidebar-v360 {
+            font-size: 58px;
+            line-height: 1;
+            font-weight: 950;
+            letter-spacing: -2px;
+        }
+        .sidebar-v360 .v360-letter {
+            color: #18BDF2 !important;
+        }
+        .sidebar-v360 .v360-number {
+            color: #FFFFFF !important;
+        }
+        .sidebar-cap {
+            margin-top: 10px;
+            color: #18BDF2 !important;
+            font-size: 18px;
+            font-weight: 950;
+            letter-spacing: 5px;
+        }
         .sidebar-user-card {
             background: rgba(255,255,255,.09) !important;
             border: 1px solid rgba(255,255,255,.18) !important;
@@ -802,12 +805,8 @@ header_desktop(usuario)
 st.sidebar.markdown(
     """
     <div class="sidebar-brand">
-        <div class="sidebar-v360">
-    <span style="color:#18BDF2">V</span>360
-</div>
-<div class="sidebar-cap">
-    CAPTAÇÃO
-</div>
+        <div class="sidebar-v360"><span class="v360-letter">V</span><span class="v360-number">360</span></div>
+        <div class="sidebar-cap">CAPTAÇÃO</div>
     </div>
     """,
     unsafe_allow_html=True,
