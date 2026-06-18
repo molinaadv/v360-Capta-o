@@ -306,24 +306,26 @@ def aplicar_css_sidebar_desktop():
         }
         .sidebar-brand {
             text-align: center;
-            padding: 20px 8px 18px 8px;
-            margin: 0 0 16px 0;
+            padding: 70px 10px 55px 10px;
+            margin: 0 0 20px 0;
             border-bottom: 1px solid rgba(255,255,255,.16);
         }
-        .sidebar-v360 {
-            font-size: 32px;
-            line-height: 1;
-            font-weight: 950;
-            letter-spacing: -1px;
-            color: #FFFFFF !important;
+
+       .sidebar-v360 {
+           font-size: 62px;
+           line-height: 1;
+           font-weight: 950;
+           letter-spacing: -2px;
+           color: #FFFFFF !important;
         }
+
         .sidebar-cap {
-            margin-top: 8px;
+            margin-top: 14px;
             color: #18BDF2 !important;
-            font-size: 14px;
+            font-size: 22px;
             font-weight: 950;
-            letter-spacing: 4px;
-        }
+            letter-spacing: 6px;
+         }
         .sidebar-user-card {
             background: rgba(255,255,255,.09) !important;
             border: 1px solid rgba(255,255,255,.18) !important;
@@ -800,8 +802,12 @@ header_desktop(usuario)
 st.sidebar.markdown(
     """
     <div class="sidebar-brand">
-        <div class="sidebar-v360"><span style="color:#18BDF2">V</span>360</div>
-        <div class="sidebar-cap">CAPTAÇÃO</div>
+        <div class="sidebar-v360">
+    <span style="color:#18BDF2">V</span>360
+</div>
+<div class="sidebar-cap">
+    CAPTAÇÃO
+</div>
     </div>
     """,
     unsafe_allow_html=True,
