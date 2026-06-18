@@ -316,7 +316,6 @@ def aplicar_css_sidebar_desktop():
     line-height: 1;
     font-weight: 950;
     letter-spacing: -2px;
-    color: #FFFFFF !important;
 }
 
 .sidebar-cap {
@@ -803,11 +802,12 @@ st.sidebar.markdown(
     """
     <div class="sidebar-brand">
         <div class="sidebar-v360">
-    <span style="color:#18BDF2">V</span>360
-</div>
-<div class="sidebar-cap">
-    CAPTAÇÃO
-</div>
+            <span style="color:#18BDF2 !important;">V</span><span style="color:#FFFFFF !important;">360</span>
+        </div>
+
+        <div class="sidebar-cap">
+            CAPTAÇÃO
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
