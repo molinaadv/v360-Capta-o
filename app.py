@@ -32,7 +32,7 @@ TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v12-unidades"
+VERSAO_APP = "executivo-v360-captação-v13-editar-usuarios"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -588,6 +588,39 @@ def listar_usuarios_ativos():
         return []
 
 
+def listar_usuarios_todos():
+    try:
+        resp = (
+            supabase.table(TABELA_USUARIOS)
+            .select("*")
+            .order("nome")
+            .execute()
+        )
+        return resp.data or []
+    except Exception:
+        return []
+
+
+def atualizar_usuario(usuario_id: str, dados: dict):
+    return supabase.table(TABELA_USUARIOS).update(dados).eq("id", usuario_id).execute()
+
+
+def remover_vinculos_usuario(usuario_id: str):
+    if not usuario_id:
+        return None
+    return supabase.table(TABELA_USUARIO_UNIDADES).delete().eq("usuario_id", usuario_id).execute()
+
+
+def substituir_usuario_unidades(usuario_id: str, unidades: list[str]):
+    if not usuario_id:
+        return
+    try:
+        remover_vinculos_usuario(usuario_id)
+    except Exception:
+        pass
+    vincular_usuario_unidades(usuario_id, unidades)
+
+
 def listar_beneficios():
     try:
         resp = (
@@ -675,7 +708,8 @@ def listar_unidades_usuario(usuario_id: str):
 
 def usuario_eh_geral(usuario: dict) -> bool:
     perfil = (usuario or {}).get("perfil", "")
-    return perfil in ["gestor_geral", "supervisor", "gestor"]
+    # Gestor geral vê todas as unidades. Supervisor/gestor_unidade/gestor_regional respeitam as unidades liberadas.
+    return perfil in ["gestor_geral", "gestor"]
 
 
 def unidades_permitidas_usuario(usuario: dict) -> list[str]:
@@ -2195,55 +2229,150 @@ elif pagina == "Cadastros":
 # -------------------------------
 elif pagina == "Usuários":
     st.title("👥 Usuários")
-    st.caption("Cadastre captadores e gestores com acesso por unidade/região. O captador do lead será automático pelo login.")
+    st.caption("Cadastre, edite, ative/inative usuários e altere o perfil/unidades liberadas.")
 
-    with st.form("form_usuario"):
-        col1, col2 = st.columns(2)
-        with col1:
-            nome = st.text_input("Nome")
-            email = st.text_input("E-mail")
-        with col2:
-            senha = st.text_input("Senha", type="password")
-            perfil = st.selectbox("Perfil", ["captador", "gestor_unidade", "gestor_regional", "gestor_geral", "supervisor"])
-            unidades_opts = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
-            unidades_usuario = st.multiselect(
-                "Unidades liberadas",
-                unidades_opts,
-                default=unidades_opts if perfil in ["gestor_geral", "supervisor"] else (unidades_opts[:1] if unidades_opts else []),
-                help="Captador e gestor de unidade veem apenas as unidades liberadas. Gestor geral vê todas."
-            )
-        criar = st.form_submit_button("Criar Usuário")
+    PERFIS_USUARIO = ["captador", "supervisor", "gestor_regional", "gestor_geral", "gestor_unidade"]
+    unidades_opts = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
 
-    if criar:
-        if not nome or not email or not senha:
-            st.error("Preencha nome, e-mail e senha.")
+    tab_criar, tab_editar, tab_lista = st.tabs(["➕ Criar usuário", "✏️ Editar usuário", "📋 Lista de usuários"])
+
+    with tab_criar:
+        st.subheader("Criar novo usuário")
+        with st.form("form_usuario_criar"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nome = st.text_input("Nome", key="criar_nome")
+                email = st.text_input("E-mail", key="criar_email")
+            with col2:
+                senha = st.text_input("Senha", type="password", key="criar_senha")
+                perfil_novo = st.selectbox("Perfil", PERFIS_USUARIO, key="criar_perfil")
+                default_unidades = unidades_opts if perfil_novo == "gestor_geral" else (unidades_opts[:1] if unidades_opts else [])
+                unidades_usuario = st.multiselect(
+                    "Unidades liberadas",
+                    unidades_opts,
+                    default=default_unidades,
+                    key="criar_unidades",
+                    help="Captador vê os próprios leads. Supervisor/gestor regional veem as unidades liberadas. Gestor geral vê tudo."
+                )
+            criar = st.form_submit_button("Criar Usuário")
+
+        if criar:
+            if not nome or not email or not senha:
+                st.error("Preencha nome, e-mail e senha.")
+            else:
+                try:
+                    resp_user = supabase.table(TABELA_USUARIOS).insert({
+                        "nome": normalizar_texto(nome),
+                        "email": email.strip().lower(),
+                        "senha": senha,
+                        "perfil": perfil_novo,
+                        "ativo": True,
+                        "unidade_padrao": unidades_usuario[0] if unidades_usuario else None,
+                    }).execute()
+                    novo_usuario_id = (resp_user.data or [{}])[0].get("id") if hasattr(resp_user, "data") else None
+                    if novo_usuario_id:
+                        vincular_usuario_unidades(novo_usuario_id, unidades_usuario)
+                    st.success("Usuário criado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao criar usuário: {e}")
+
+    with tab_editar:
+        st.subheader("Editar usuário existente")
+        usuarios_todos = listar_usuarios_todos()
+        if not usuarios_todos:
+            st.info("Nenhum usuário encontrado.")
         else:
-            try:
-                resp_user = supabase.table(TABELA_USUARIOS).insert({
-                    "nome": normalizar_texto(nome),
-                    "email": email.strip().lower(),
-                    "senha": senha,
-                    "perfil": perfil,
-                    "ativo": True,
-                    "unidade_padrao": unidades_usuario[0] if unidades_usuario else None,
-                }).execute()
-                novo_usuario_id = (resp_user.data or [{}])[0].get("id") if hasattr(resp_user, "data") else None
-                if novo_usuario_id:
-                    vincular_usuario_unidades(novo_usuario_id, unidades_usuario)
-                st.success("Usuário criado com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao criar usuário: {e}")
+            busca_usuario = st.text_input("Buscar por nome ou e-mail", key="buscar_usuario_editar")
+            usuarios_filtrados = usuarios_todos
+            if busca_usuario:
+                termo = busca_usuario.strip().lower()
+                usuarios_filtrados = [
+                    u for u in usuarios_todos
+                    if termo in str(u.get("nome", "")).lower() or termo in str(u.get("email", "")).lower()
+                ]
 
-    usuarios = listar_usuarios_ativos()
-    st.subheader("Usuários ativos")
-    dfu = pd.DataFrame(usuarios)
-    if not dfu.empty and "id" in dfu.columns:
-        def texto_unidades_liberadas(row):
-            perfil_row = row.get("perfil", "")
-            unidades_row = listar_unidades_usuario(str(row.get("id", "")))
-            if perfil_row in ["gestor_geral", "supervisor", "gestor"]:
-                return "Todas"
-            return ", ".join(unidades_row) if unidades_row else (row.get("unidade_padrao") or "Boa Vista")
+            if not usuarios_filtrados:
+                st.warning("Nenhum usuário encontrado para essa busca.")
+            else:
+                def label_usuario(u):
+                    ativo_txt = "Ativo" if u.get("ativo", True) else "Inativo"
+                    return f"{u.get('nome','')} | {u.get('email','')} | {u.get('perfil','')} | {ativo_txt}"
 
-        dfu["unidades_liberadas"] = dfu.apply(texto_unidades_liberadas, axis=1)
-    st.dataframe(dfu, use_container_width=True, hide_index=True)
+                labels = [label_usuario(u) for u in usuarios_filtrados]
+                escolhido = st.selectbox("Selecionar usuário", labels, key="usuario_para_editar")
+                usuario_edit = usuarios_filtrados[labels.index(escolhido)]
+                usuario_id = str(usuario_edit.get("id"))
+                unidades_atual = listar_unidades_usuario(usuario_id)
+                if not unidades_atual and usuario_edit.get("unidade_padrao"):
+                    unidades_atual = [usuario_edit.get("unidade_padrao")]
+
+                with st.form("form_usuario_editar"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        nome_edit = st.text_input("Nome", value=usuario_edit.get("nome") or "")
+                        email_edit = st.text_input("E-mail", value=usuario_edit.get("email") or "")
+                        alterar_senha = st.checkbox("Alterar senha", value=False)
+                        nova_senha = st.text_input("Nova senha", type="password", disabled=not alterar_senha)
+                    with col2:
+                        perfil_atual = usuario_edit.get("perfil") or "captador"
+                        idx_perfil = PERFIS_USUARIO.index(perfil_atual) if perfil_atual in PERFIS_USUARIO else 0
+                        perfil_edit = st.selectbox("Perfil", PERFIS_USUARIO, index=idx_perfil)
+                        ativo_edit = st.selectbox(
+                            "Status do usuário",
+                            ["Ativo", "Inativo"],
+                            index=0 if usuario_edit.get("ativo", True) else 1,
+                        )
+                        unidades_validas = [u for u in unidades_atual if u in unidades_opts]
+                        default_edit = unidades_opts if perfil_edit == "gestor_geral" else unidades_validas
+                        unidades_edit = st.multiselect(
+                            "Unidades liberadas",
+                            unidades_opts,
+                            default=default_edit,
+                            help="Para gestor geral pode marcar todas; para supervisor/regional marque apenas as unidades permitidas."
+                        )
+                    salvar_edit = st.form_submit_button("💾 Salvar alterações")
+
+                if salvar_edit:
+                    if not nome_edit or not email_edit:
+                        st.error("Nome e e-mail são obrigatórios.")
+                    elif alterar_senha and not nova_senha:
+                        st.error("Informe a nova senha ou desmarque a opção Alterar senha.")
+                    else:
+                        dados_update = {
+                            "nome": normalizar_texto(nome_edit),
+                            "email": email_edit.strip().lower(),
+                            "perfil": perfil_edit,
+                            "ativo": ativo_edit == "Ativo",
+                            "unidade_padrao": unidades_edit[0] if unidades_edit else None,
+                        }
+                        if alterar_senha:
+                            dados_update["senha"] = nova_senha
+                        try:
+                            atualizar_usuario(usuario_id, dados_update)
+                            substituir_usuario_unidades(usuario_id, unidades_edit)
+                            st.success("Usuário atualizado com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao atualizar usuário: {e}")
+
+    with tab_lista:
+        st.subheader("Usuários cadastrados")
+        usuarios = listar_usuarios_todos()
+        dfu = pd.DataFrame(usuarios)
+        if dfu.empty:
+            st.info("Nenhum usuário cadastrado.")
+        else:
+            if "id" in dfu.columns:
+                def texto_unidades_liberadas(row):
+                    perfil_row = row.get("perfil", "")
+                    if perfil_row in ["gestor_geral", "gestor"]:
+                        return "Todas"
+                    unidades_row = listar_unidades_usuario(str(row.get("id", "")))
+                    return ", ".join(unidades_row) if unidades_row else (row.get("unidade_padrao") or "Boa Vista")
+
+                dfu["unidades_liberadas"] = dfu.apply(texto_unidades_liberadas, axis=1)
+
+            cols = ["nome", "email", "perfil", "ativo", "unidade_padrao", "unidades_liberadas"]
+            cols = [c for c in cols if c in dfu.columns]
+            st.dataframe(dfu[cols], use_container_width=True, hide_index=True)
