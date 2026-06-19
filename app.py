@@ -1032,6 +1032,43 @@ def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cl
 def pode_ver_todos(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade"]
 
+
+def pode_gerenciar_usuarios(usuario: dict) -> bool:
+    return usuario.get("perfil") in ["gestor_geral", "gestor_regional"]
+
+
+def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
+    if usuario.get("perfil") == "gestor_geral":
+        return ["captador", "supervisor", "gestor_regional", "gestor_geral"]
+    if usuario.get("perfil") == "gestor_regional":
+        return ["captador", "supervisor"]
+    return []
+
+
+def usuario_dentro_do_escopo_admin(admin: dict, alvo: dict) -> bool:
+    if not admin or not alvo:
+        return False
+    if admin.get("perfil") == "gestor_geral":
+        return True
+    if admin.get("perfil") == "gestor_regional":
+        if alvo.get("perfil") in ["gestor_geral", "gestor_regional"]:
+            return False
+        unidades_admin = set(unidades_permitidas_usuario(admin))
+        unidades_alvo = set(listar_unidades_usuario(str(alvo.get("id", ""))))
+        unidade_padrao = alvo.get("unidade_padrao") or alvo.get("unidade") or alvo.get("unidade_nome")
+        if unidade_padrao:
+            unidades_alvo.add(unidade_padrao)
+        if not unidades_alvo:
+            unidades_alvo.add("Boa Vista")
+        return bool(unidades_admin.intersection(unidades_alvo))
+    return False
+
+
+def filtrar_usuarios_por_escopo_admin(usuarios: list[dict], admin: dict) -> list[dict]:
+    if admin.get("perfil") == "gestor_geral":
+        return usuarios
+    return [u for u in usuarios if usuario_dentro_do_escopo_admin(admin, u)]
+
 # -------------------------------
 # LOGIN
 # -------------------------------
@@ -1355,8 +1392,9 @@ if pode_ver_todos(usuario):
         "💡 Insights V360": "Insights V360",
         "✏️ Atualizar Lead": "Atualizar Lead",
         "⚙️ Cadastros": "Cadastros",
-        "👥 Usuários": "Usuários",
     })
+    if pode_gerenciar_usuarios(usuario):
+        opcoes_base.update({"👥 Usuários": "Usuários"})
 
 pagina_label = st.sidebar.radio("", list(opcoes_base.keys()), label_visibility="collapsed")
 pagina = opcoes_base[pagina_label]
@@ -2229,10 +2267,25 @@ elif pagina == "Cadastros":
 # -------------------------------
 elif pagina == "Usuários":
     st.title("👥 Usuários")
-    st.caption("Cadastre, edite, ative/inative usuários e altere o perfil/unidades liberadas.")
+    st.caption("Gestão de usuários com segurança por perfil e unidade.")
 
-    PERFIS_USUARIO = ["captador", "supervisor", "gestor_regional", "gestor_geral", "gestor_unidade"]
-    unidades_opts = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
+    if not pode_gerenciar_usuarios(usuario):
+        st.error("Você não tem permissão para gerenciar usuários.")
+        st.stop()
+
+    perfil_admin = usuario.get("perfil")
+    PERFIS_USUARIO = perfis_que_usuario_pode_criar(usuario)
+    unidades_todas = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
+    unidades_opts = unidades_todas if perfil_admin == "gestor_geral" else [u for u in unidades_permitidas_usuario(usuario) if u in unidades_todas]
+
+    if not unidades_opts and perfil_admin != "gestor_geral":
+        st.warning("Seu usuário não possui unidades liberadas. Peça para um gestor geral ajustar seu cadastro.")
+        st.stop()
+
+    if perfil_admin == "gestor_geral":
+        st.info("Gestor geral: pode criar e editar usuários de todas as unidades.")
+    else:
+        st.info("Gestor regional: pode criar e editar apenas captadores/supervisores das unidades liberadas.")
 
     tab_criar, tab_editar, tab_lista = st.tabs(["➕ Criar usuário", "✏️ Editar usuário", "📋 Lista de usuários"])
 
@@ -2246,19 +2299,34 @@ elif pagina == "Usuários":
             with col2:
                 senha = st.text_input("Senha", type="password", key="criar_senha")
                 perfil_novo = st.selectbox("Perfil", PERFIS_USUARIO, key="criar_perfil")
-                default_unidades = unidades_opts if perfil_novo == "gestor_geral" else (unidades_opts[:1] if unidades_opts else [])
-                unidades_usuario = st.multiselect(
-                    "Unidades liberadas",
-                    unidades_opts,
-                    default=default_unidades,
-                    key="criar_unidades",
-                    help="Captador vê os próprios leads. Supervisor/gestor regional veem as unidades liberadas. Gestor geral vê tudo."
-                )
+
+                if perfil_novo == "gestor_geral":
+                    unidades_usuario = unidades_todas
+                    st.multiselect(
+                        "Unidades liberadas",
+                        unidades_todas,
+                        default=unidades_todas,
+                        disabled=True,
+                        help="Gestor geral vê todas as unidades automaticamente.",
+                        key="criar_unidades_geral",
+                    )
+                else:
+                    unidades_usuario = st.multiselect(
+                        "Unidades liberadas",
+                        unidades_opts,
+                        default=unidades_opts[:1] if unidades_opts else [],
+                        key="criar_unidades",
+                        help="Captador vê os próprios leads. Supervisor/regional veem as unidades liberadas."
+                    )
             criar = st.form_submit_button("Criar Usuário")
 
         if criar:
             if not nome or not email or not senha:
                 st.error("Preencha nome, e-mail e senha.")
+            elif perfil_novo not in PERFIS_USUARIO:
+                st.error("Você não tem permissão para criar usuário com esse perfil.")
+            elif perfil_novo != "gestor_geral" and not unidades_usuario:
+                st.error("Selecione ao menos uma unidade para o usuário.")
             else:
                 try:
                     resp_user = supabase.table(TABELA_USUARIOS).insert({
@@ -2279,9 +2347,9 @@ elif pagina == "Usuários":
 
     with tab_editar:
         st.subheader("Editar usuário existente")
-        usuarios_todos = listar_usuarios_todos()
+        usuarios_todos = filtrar_usuarios_por_escopo_admin(listar_usuarios_todos(), usuario)
         if not usuarios_todos:
-            st.info("Nenhum usuário encontrado.")
+            st.info("Nenhum usuário encontrado dentro do seu escopo.")
         else:
             busca_usuario = st.text_input("Buscar por nome ou e-mail", key="buscar_usuario_editar")
             usuarios_filtrados = usuarios_todos
@@ -2303,6 +2371,11 @@ elif pagina == "Usuários":
                 escolhido = st.selectbox("Selecionar usuário", labels, key="usuario_para_editar")
                 usuario_edit = usuarios_filtrados[labels.index(escolhido)]
                 usuario_id = str(usuario_edit.get("id"))
+
+                if not usuario_dentro_do_escopo_admin(usuario, usuario_edit):
+                    st.error("Você não tem permissão para editar este usuário.")
+                    st.stop()
+
                 unidades_atual = listar_unidades_usuario(usuario_id)
                 if not unidades_atual and usuario_edit.get("unidade_padrao"):
                     unidades_atual = [usuario_edit.get("unidade_padrao")]
@@ -2316,21 +2389,37 @@ elif pagina == "Usuários":
                         nova_senha = st.text_input("Nova senha", type="password", disabled=not alterar_senha)
                     with col2:
                         perfil_atual = usuario_edit.get("perfil") or "captador"
-                        idx_perfil = PERFIS_USUARIO.index(perfil_atual) if perfil_atual in PERFIS_USUARIO else 0
-                        perfil_edit = st.selectbox("Perfil", PERFIS_USUARIO, index=idx_perfil)
+                        perfis_edicao = PERFIS_USUARIO.copy()
+                        if perfil_admin == "gestor_geral" and perfil_atual not in perfis_edicao:
+                            perfis_edicao.append(perfil_atual)
+                        if perfil_atual not in perfis_edicao:
+                            perfis_edicao = [perfil_atual] + perfis_edicao
+                        idx_perfil = perfis_edicao.index(perfil_atual) if perfil_atual in perfis_edicao else 0
+                        perfil_edit = st.selectbox("Perfil", perfis_edicao, index=idx_perfil)
                         ativo_edit = st.selectbox(
                             "Status do usuário",
                             ["Ativo", "Inativo"],
                             index=0 if usuario_edit.get("ativo", True) else 1,
                         )
                         unidades_validas = [u for u in unidades_atual if u in unidades_opts]
-                        default_edit = unidades_opts if perfil_edit == "gestor_geral" else unidades_validas
-                        unidades_edit = st.multiselect(
-                            "Unidades liberadas",
-                            unidades_opts,
-                            default=default_edit,
-                            help="Para gestor geral pode marcar todas; para supervisor/regional marque apenas as unidades permitidas."
-                        )
+
+                        if perfil_edit == "gestor_geral":
+                            unidades_edit = unidades_todas
+                            st.multiselect(
+                                "Unidades liberadas",
+                                unidades_todas,
+                                default=unidades_todas,
+                                disabled=True,
+                                help="Gestor geral vê todas as unidades automaticamente.",
+                                key="editar_unidades_geral",
+                            )
+                        else:
+                            unidades_edit = st.multiselect(
+                                "Unidades liberadas",
+                                unidades_opts,
+                                default=unidades_validas or (unidades_opts[:1] if unidades_opts else []),
+                                help="Selecione apenas as unidades dentro do seu escopo."
+                            )
                     salvar_edit = st.form_submit_button("💾 Salvar alterações")
 
                 if salvar_edit:
@@ -2338,6 +2427,10 @@ elif pagina == "Usuários":
                         st.error("Nome e e-mail são obrigatórios.")
                     elif alterar_senha and not nova_senha:
                         st.error("Informe a nova senha ou desmarque a opção Alterar senha.")
+                    elif perfil_edit not in PERFIS_USUARIO:
+                        st.error("Você não tem permissão para atribuir esse perfil.")
+                    elif perfil_edit != "gestor_geral" and not unidades_edit:
+                        st.error("Selecione ao menos uma unidade para o usuário.")
                     else:
                         dados_update = {
                             "nome": normalizar_texto(nome_edit),
@@ -2358,10 +2451,10 @@ elif pagina == "Usuários":
 
     with tab_lista:
         st.subheader("Usuários cadastrados")
-        usuarios = listar_usuarios_todos()
+        usuarios = filtrar_usuarios_por_escopo_admin(listar_usuarios_todos(), usuario)
         dfu = pd.DataFrame(usuarios)
         if dfu.empty:
-            st.info("Nenhum usuário cadastrado.")
+            st.info("Nenhum usuário cadastrado dentro do seu escopo.")
         else:
             if "id" in dfu.columns:
                 def texto_unidades_liberadas(row):
