@@ -1,6 +1,9 @@
 import base64
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
+import uuid
+import io
+import zipfile
 
 import pandas as pd
 import plotly.express as px
@@ -23,8 +26,10 @@ TABELA_LEADS = "captacao_leads"
 TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
+TABELA_ARQUIVOS = "captacao_arquivos"
+BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v8-logo-sidebar"
+VERSAO_APP = "executivo-v360-captação-v10-arquivos-zip"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -207,8 +212,8 @@ def aplicar_css_mobile():
         }
         .mobile-nav-box div[role="radiogroup"] {
             display:grid !important;
-            grid-template-columns: 1fr 1fr;
-            gap:8px;
+            grid-template-columns: repeat(3, 1fr);
+            gap:6px;
         }
         .mobile-nav-box div[role="radiogroup"] label {
             background:#F4F8FC !important;
@@ -223,7 +228,7 @@ def aplicar_css_mobile():
             text-align:center !important;
             font-weight:900 !important;
             color:#34435A !important;
-            font-size:13px !important;
+            font-size:12px !important;
         }
         .mobile-nav-box div[role="radiogroup"] label:has(input:checked) {
             background: linear-gradient(90deg, #18BDF2, #0077C8) !important;
@@ -305,30 +310,27 @@ def aplicar_css_sidebar_desktop():
             color: #FFFFFF !important;
         }
         .sidebar-brand {
-            text-align: center;
-            padding: 20px 8px 18px 8px;
-            margin: 0 0 16px 0;
-            border-bottom: 1px solid rgba(255,255,255,.16);
-        }
-        .sidebar-v360 {
-            font-size: 58px;
-            line-height: 1;
-            font-weight: 950;
-            letter-spacing: -2px;
-        }
-        .sidebar-v360 .v360-letter {
-            color: #18BDF2 !important;
-        }
-        .sidebar-v360 .v360-number {
-            color: #FFFFFF !important;
-        }
-        .sidebar-cap {
-            margin-top: 10px;
-            color: #18BDF2 !important;
-            font-size: 18px;
-            font-weight: 950;
-            letter-spacing: 5px;
-        }
+    text-align: center;
+    padding: 20px 8px 18px 8px;
+    margin: 0 0 16px 0;
+    border-bottom: 1px solid rgba(255,255,255,.16);
+}
+
+.sidebar-v360 {
+    font-size: 58px;
+    line-height: 1;
+    font-weight: 950;
+    letter-spacing: -2px;
+    color: #FFFFFF !important;
+}
+
+.sidebar-cap {
+    margin-top: 10px;
+    color: #18BDF2 !important;
+    font-size: 18px;
+    font-weight: 950;
+    letter-spacing: 5px;
+}
         .sidebar-user-card {
             background: rgba(255,255,255,.09) !important;
             border: 1px solid rgba(255,255,255,.18) !important;
@@ -658,6 +660,204 @@ def salvar_lead(dados: dict):
 def atualizar_lead(lead_id: str, dados: dict):
     return supabase.table(TABELA_LEADS).update(dados).eq("id", lead_id).execute()
 
+def caminho_arquivo_storage(lead_id: str, nome_arquivo: str) -> str:
+    nome_limpo = "".join(ch if ch.isalnum() or ch in ".-_" else "_" for ch in nome_arquivo)
+    return f"{lead_id}/{uuid.uuid4().hex}_{nome_limpo}"
+
+
+def salvar_metadado_arquivo(lead_id: str, arquivo, tipo_documento: str, usuario: dict, caminho: str):
+    dados = {
+        "lead_id": lead_id,
+        "nome_arquivo": arquivo.name,
+        "tipo_documento": tipo_documento or "Documento",
+        "caminho_storage": caminho,
+        "content_type": getattr(arquivo, "type", None) or "application/octet-stream",
+        "tamanho_bytes": getattr(arquivo, "size", None),
+        "status_arquivo": "Pendente",
+        "enviado_por": usuario.get("nome"),
+        "removido_storage": False,
+    }
+    return supabase.table(TABELA_ARQUIVOS).insert(dados).execute()
+
+
+def enviar_arquivo_temporario(lead_id: str, arquivo, tipo_documento: str, usuario: dict):
+    caminho = caminho_arquivo_storage(lead_id, arquivo.name)
+    conteudo = arquivo.getvalue()
+    content_type = getattr(arquivo, "type", None) or "application/octet-stream"
+    supabase.storage.from_(BUCKET_ARQUIVOS).upload(
+        caminho,
+        conteudo,
+        file_options={"content-type": content_type, "upsert": "false"},
+    )
+    salvar_metadado_arquivo(lead_id, arquivo, tipo_documento, usuario, caminho)
+    return caminho
+
+
+def carregar_arquivos_lead(lead_id: str) -> pd.DataFrame:
+    try:
+        resp = (
+            supabase.table(TABELA_ARQUIVOS)
+            .select("*")
+            .eq("lead_id", lead_id)
+            .order("criado_em", desc=True)
+            .execute()
+        )
+        df = pd.DataFrame(resp.data or [])
+        for col in ["criado_em", "data_download"]:
+            if not df.empty and col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def baixar_arquivo_storage(caminho: str) -> bytes:
+    return supabase.storage.from_(BUCKET_ARQUIVOS).download(caminho)
+
+
+def marcar_arquivos_baixados(arquivo_ids: list[str], usuario_nome: str):
+    if not arquivo_ids:
+        return None
+    dados = {
+        "status_arquivo": "Baixado",
+        "baixado_por": usuario_nome,
+        "data_download": datetime.now(timezone.utc).isoformat(),
+        "removido_storage": False,
+    }
+    return supabase.table(TABELA_ARQUIVOS).update(dados).in_("id", arquivo_ids).execute()
+
+
+def carregar_arquivos_por_leads(lead_ids: list[str]) -> pd.DataFrame:
+    if not lead_ids:
+        return pd.DataFrame()
+    try:
+        resp = (
+            supabase.table(TABELA_ARQUIVOS)
+            .select("lead_id,status_arquivo,data_download,baixado_por")
+            .in_("lead_id", [str(x) for x in lead_ids])
+            .execute()
+        )
+        return pd.DataFrame(resp.data or [])
+    except Exception:
+        return pd.DataFrame()
+
+
+def resumo_arquivos_para_leads(df_leads: pd.DataFrame) -> pd.DataFrame:
+    if df_leads.empty or "id" not in df_leads.columns:
+        return df_leads
+    df2 = df_leads.copy()
+    arquivos = carregar_arquivos_por_leads(df2["id"].astype(str).tolist())
+    df2["documentos_enviados"] = 0
+    df2["documentos_baixados"] = 0
+    df2["status_documentos"] = "Sem documentos"
+    if arquivos.empty:
+        return df2
+    arquivos["lead_id"] = arquivos["lead_id"].astype(str)
+    arquivos["baixado"] = arquivos["status_arquivo"].fillna("Pendente").eq("Baixado")
+    resumo = arquivos.groupby("lead_id").agg(
+        documentos_enviados=("status_arquivo", "count"),
+        documentos_baixados=("baixado", "sum"),
+    ).reset_index()
+    resumo["documentos_baixados"] = resumo["documentos_baixados"].astype(int)
+    df2["id_str"] = df2["id"].astype(str)
+    df2 = df2.merge(resumo, left_on="id_str", right_on="lead_id", how="left", suffixes=("", "_calc"))
+    for col in ["documentos_enviados", "documentos_baixados"]:
+        calc = f"{col}_calc"
+        if calc in df2.columns:
+            df2[col] = df2[calc].fillna(df2[col]).fillna(0).astype(int)
+            df2 = df2.drop(columns=[calc])
+    df2["status_documentos"] = df2.apply(
+        lambda r: "Sem documentos" if r["documentos_enviados"] == 0 else (
+            "Documentos baixados" if r["documentos_enviados"] == r["documentos_baixados"] else "Aguardando download"
+        ),
+        axis=1,
+    )
+    drop_cols = [c for c in ["id_str", "lead_id"] if c in df2.columns]
+    return df2.drop(columns=drop_cols)
+
+
+def criar_zip_arquivos(arquivos_df: pd.DataFrame, nome_cliente: str = "cliente") -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as zipf:
+        usados = set()
+        for _, arq in arquivos_df.iterrows():
+            caminho = arq.get("caminho_storage", "")
+            if not caminho:
+                continue
+            dados = baixar_arquivo_storage(caminho)
+            nome = arq.get("nome_arquivo") or "arquivo"
+            tipo = arq.get("tipo_documento") or "Documento"
+            nome_zip = f"{tipo}_{nome}".replace("/", "_").replace("\\", "_")
+            base_nome = nome_zip
+            i = 2
+            while nome_zip in usados:
+                nome_zip = f"{i}_{base_nome}"
+                i += 1
+            usados.add(nome_zip)
+            zipf.writestr(nome_zip, dados)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cliente"):
+    st.markdown("### 📎 Arquivos do Cliente")
+    arquivos_df = carregar_arquivos_lead(lead_id)
+    if arquivos_df.empty:
+        st.info("Nenhum arquivo enviado para este lead.")
+        return
+
+    arquivos_df["status_arquivo"] = arquivos_df["status_arquivo"].fillna("Pendente")
+    total = len(arquivos_df)
+    baixados_qtd = int((arquivos_df["status_arquivo"] == "Baixado").sum())
+    disponiveis = arquivos_df[arquivos_df["caminho_storage"].fillna("") != ""].copy()
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("📎 Enviados", total)
+    c2.metric("📥 Baixados", baixados_qtd)
+    c3.metric("⏳ A baixar", max(total - baixados_qtd, 0))
+
+    st.dataframe(
+        arquivos_df[[c for c in ["nome_arquivo", "tipo_documento", "status_arquivo", "enviado_por", "baixado_por", "data_download"] if c in arquivos_df.columns]].rename(columns={
+            "nome_arquivo": "Arquivo",
+            "tipo_documento": "Tipo",
+            "status_arquivo": "Status",
+            "enviado_por": "Enviado por",
+            "baixado_por": "Baixado por",
+            "data_download": "Data download",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    if disponiveis.empty:
+        st.info("Não há arquivos disponíveis para download.")
+        return
+
+    try:
+        nome_zip = normalizar_texto(nome_cliente or "cliente").replace(" ", "_") or "cliente"
+        zip_bytes = criar_zip_arquivos(disponiveis, nome_zip)
+        clicou = st.download_button(
+            f"⬇️ Baixar documentação completa ({len(disponiveis)} arquivo(s))",
+            data=zip_bytes,
+            file_name=f"{nome_zip}_documentos.zip",
+            mime="application/zip",
+            key=f"download_zip_{lead_id}",
+        )
+        if clicou:
+            ids = [str(x) for x in disponiveis["id"].tolist()]
+            marcar_arquivos_baixados(ids, usuario.get("nome", ""))
+            salvar_historico(
+                lead_id,
+                usuario.get("nome", ""),
+                "Arquivos baixados",
+                f"Documentação completa baixada em ZIP ({len(disponiveis)} arquivo(s)).",
+                "Download de arquivos",
+            )
+            st.success("Download registrado. Os arquivos permanecem armazenados para segurança.")
+            st.rerun()
+    except Exception as e:
+        st.error(f"Erro ao preparar ZIP dos documentos: {e}")
+
 
 def pode_ver_todos(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor", "supervisor"]
@@ -701,18 +901,20 @@ if perfil == "captador":
     aplicar_css_mobile()
     header_mobile()
 
-    nav_atual = "➕ Novo Lead" if st.session_state.captador_pagina == "Novo Lead" else "📋 Minhas Captações"
+    opcoes_captador = ["➕ Novo Lead", "📋 Minhas", "📎 Documentos"]
+    mapa_captador = {"➕ Novo Lead": "Novo Lead", "📋 Minhas": "Minhas Captações", "📎 Documentos": "Documentos"}
+    pagina_atual_label = next((k for k, v in mapa_captador.items() if v == st.session_state.captador_pagina), "➕ Novo Lead")
     st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
     nav_escolhida = st.radio(
         "Navegação",
-        ["➕ Novo Lead", "📋 Minhas Captações"],
-        index=0 if nav_atual == "➕ Novo Lead" else 1,
+        opcoes_captador,
+        index=opcoes_captador.index(pagina_atual_label),
         horizontal=True,
         label_visibility="collapsed",
         key="captador_nav_radio",
     )
     st.markdown("</div>", unsafe_allow_html=True)
-    nova_pagina = "Novo Lead" if nav_escolhida == "➕ Novo Lead" else "Minhas Captações"
+    nova_pagina = mapa_captador[nav_escolhida]
     if nova_pagina != st.session_state.captador_pagina:
         st.session_state.captador_pagina = nova_pagina
         st.rerun()
@@ -733,6 +935,8 @@ if perfil == "captador":
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
+            tipo_documento_upload = st.selectbox("Tipo dos arquivos", ["Documentos do cliente", "RG/CNH", "CPF", "Comprovante de residência", "Laudos", "Outros"], key="tipo_doc_upload_mobile")
+            arquivos_upload = st.file_uploader("Adicionar arquivos/documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
             enviar = st.form_submit_button("💾 SALVAR LEAD")
             st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
         fechar_card_mobile()
@@ -772,23 +976,83 @@ if perfil == "captador":
                     novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                     if novo_id:
                         salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
+                        if arquivos_upload:
+                            enviados = 0
+                            for arquivo in arquivos_upload:
+                                enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
+                                enviados += 1
+                            salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
                     st.success("Lead salvo com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao salvar lead: {e}")
 
-    else:
+    elif st.session_state.captador_pagina == "Minhas Captações":
         abrir_card_mobile("Minhas Captações", "Últimos leads cadastrados")
         df = carregar_leads()
         if df.empty:
             st.info("Nenhuma captação encontrada.")
         else:
             df = df[df["captador_id"].astype(str) == str(usuario["id"])]
+            df = resumo_arquivos_para_leads(df)
             status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD)
             if status_filtro:
                 df = df[df["status_lead"].isin(status_filtro)]
-            colunas = ["data_captacao", "nome_cliente", "telefone", "bairro", "tipo_beneficio", "status_lead"]
+            colunas = [
+                "data_captacao", "nome_cliente", "telefone", "bairro", "tipo_beneficio", "status_lead",
+                "documentos_enviados", "documentos_baixados", "status_documentos"
+            ]
             colunas = [c for c in colunas if c in df.columns]
             st.dataframe(preparar_dataframe_exibicao(df[colunas]), use_container_width=True, hide_index=True)
+        fechar_card_mobile()
+
+    else:
+        abrir_card_mobile("Documentos", "Adicione documentos em leads já cadastrados")
+        df = carregar_leads()
+        if df.empty:
+            st.info("Nenhuma captação encontrada.")
+        else:
+            df = df[df["captador_id"].astype(str) == str(usuario["id"])]
+            if df.empty:
+                st.info("Você ainda não possui leads cadastrados.")
+            else:
+                df = resumo_arquivos_para_leads(df)
+                df["label_doc"] = (
+                    df["nome_cliente"].fillna("") + " | " +
+                    df["telefone"].fillna("") + " | " +
+                    df["bairro"].fillna("") + " | 📎 " +
+                    df["documentos_enviados"].astype(str) + " enviados / 📥 " +
+                    df["documentos_baixados"].astype(str) + " baixados"
+                )
+                lead_label = st.selectbox("Selecione o lead", df["label_doc"].tolist())
+                lead = df[df["label_doc"] == lead_label].iloc[0]
+
+                st.write(f"**Cliente:** {lead.get('nome_cliente','')}")
+                st.write(f"**Status:** {lead.get('status_lead','Novo')}")
+                st.write(f"📎 **Enviados:** {int(lead.get('documentos_enviados',0))} | 📥 **Baixados:** {int(lead.get('documentos_baixados',0))}")
+                if int(lead.get('documentos_enviados',0)) > 0 and int(lead.get('documentos_enviados',0)) == int(lead.get('documentos_baixados',0)):
+                    st.success("Documentação recebida/baixada pela equipe.")
+                elif int(lead.get('documentos_enviados',0)) > int(lead.get('documentos_baixados',0)):
+                    st.warning("Ainda há documentos aguardando download pela equipe.")
+
+                with st.form("form_add_docs_captador", clear_on_submit=True):
+                    tipo_documento_extra = st.selectbox("Tipo dos arquivos", ["Documentos do cliente", "RG/CNH", "CPF", "Comprovante de residência", "Laudos", "Outros"], key="tipo_doc_extra_mobile")
+                    arquivos_extra = st.file_uploader("Adicionar novos documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
+                    enviar_docs = st.form_submit_button("📎 ENVIAR DOCUMENTOS")
+
+                if enviar_docs:
+                    if not arquivos_extra:
+                        st.error("Selecione pelo menos um arquivo.")
+                    else:
+                        try:
+                            enviados = 0
+                            for arquivo in arquivos_extra:
+                                enviar_arquivo_temporario(str(lead["id"]), arquivo, tipo_documento_extra, usuario)
+                                enviados += 1
+                            salvar_historico(str(lead["id"]), usuario["nome"], lead.get("status_lead", "Novo"), f"{enviados} novo(s) arquivo(s) anexado(s) pelo captador.", "Arquivos anexados")
+                            st.success(f"{enviados} documento(s) enviado(s) com sucesso!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Erro ao enviar documentos: {e}")
         fechar_card_mobile()
 
     if st.button("Sair"):
@@ -805,8 +1069,12 @@ header_desktop(usuario)
 st.sidebar.markdown(
     """
     <div class="sidebar-brand">
-        <div class="sidebar-v360"><span class="v360-letter">V</span><span class="v360-number">360</span></div>
-        <div class="sidebar-cap">CAPTAÇÃO</div>
+        <div class="sidebar-v360">
+            <span class="v-letter">V</span><span class="num-letter">360</span>
+        </div>
+        <div class="sidebar-cap">
+            CAPTAÇÃO
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -868,6 +1136,8 @@ if pagina == "Novo Lead":
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
+            tipo_documento_upload = st.selectbox("Tipo dos arquivos", ["Documentos do cliente", "RG/CNH", "CPF", "Comprovante de residência", "Laudos", "Outros"], key="tipo_doc_upload_desktop")
+            arquivos_upload = st.file_uploader("Adicionar arquivos/documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_desktop")
 
         enviar = st.form_submit_button("Salvar Lead")
 
@@ -1538,6 +1808,8 @@ elif pagina == "Atualizar Lead":
         data_cap = lead.get("data_captacao")
         st.write(f"**Data captação:** {data_cap.strftime('%d/%m/%Y %H:%M') if hasattr(data_cap, 'strftime') else data_cap}")
         st.write(f"**Quem atendeu:** {lead.get('quem_atendeu','') or 'Ainda não informado'}")
+
+    exibir_arquivos_do_lead(lead_id, usuario, lead.get("nome_cliente", "cliente"))
 
     st.markdown("### Atualização do Atendimento")
     with st.form("form_atualizar_lead_v2"):
