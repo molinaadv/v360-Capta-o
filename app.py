@@ -26,11 +26,13 @@ TABELA_LEADS = "captacao_leads"
 TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
+TABELA_UNIDADES = "captacao_unidades"
+TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades"
 TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v11-docs-filtros"
+VERSAO_APP = "executivo-v360-captação-v12-unidades"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -559,7 +561,7 @@ def buscar_usuario(email: str, senha: str):
     try:
         resp = (
             supabase.table(TABELA_USUARIOS)
-            .select("id,nome,email,perfil,ativo")
+            .select("*")
             .eq("email", email.strip().lower())
             .eq("senha", senha)
             .eq("ativo", True)
@@ -576,7 +578,7 @@ def listar_usuarios_ativos():
     try:
         resp = (
             supabase.table(TABELA_USUARIOS)
-            .select("id,nome,email,perfil,ativo")
+            .select("*")
             .eq("ativo", True)
             .order("nome")
             .execute()
@@ -629,6 +631,104 @@ def listar_tipos_arquivo():
     except Exception:
         return TIPOS_ARQUIVO_PADRAO
 
+
+
+
+def listar_unidades(ativas: bool = True):
+    try:
+        q = supabase.table(TABELA_UNIDADES).select("*").order("nome")
+        if ativas:
+            q = q.eq("ativo", True)
+        resp = q.execute()
+        dados = resp.data or []
+        if not dados:
+            return [{"nome": "Boa Vista", "cidade": "Boa Vista", "estado": "RR", "ativo": True}]
+        return dados
+    except Exception:
+        return [{"nome": "Boa Vista", "cidade": "Boa Vista", "estado": "RR", "ativo": True}]
+
+
+def criar_unidade(nome: str, cidade: str, estado: str):
+    dados = {
+        "nome": normalizar_texto(nome),
+        "cidade": normalizar_texto(cidade),
+        "estado": (estado or "").strip().upper(),
+        "ativo": True,
+    }
+    return supabase.table(TABELA_UNIDADES).insert(dados).execute()
+
+
+def listar_unidades_usuario(usuario_id: str):
+    if not usuario_id:
+        return []
+    try:
+        resp = (
+            supabase.table(TABELA_USUARIO_UNIDADES)
+            .select("unidade_nome")
+            .eq("usuario_id", usuario_id)
+            .execute()
+        )
+        return [r.get("unidade_nome") for r in (resp.data or []) if r.get("unidade_nome")]
+    except Exception:
+        return []
+
+
+def usuario_eh_geral(usuario: dict) -> bool:
+    perfil = (usuario or {}).get("perfil", "")
+    return perfil in ["gestor_geral", "supervisor", "gestor"]
+
+
+def unidades_permitidas_usuario(usuario: dict) -> list[str]:
+    if not usuario:
+        return []
+    if usuario_eh_geral(usuario):
+        return [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
+
+    unidades = listar_unidades_usuario(str(usuario.get("id", "")))
+
+    # Compatibilidade com versões antigas da tabela de usuários
+    for campo in ["unidade", "unidade_padrao", "unidade_nome"]:
+        valor = usuario.get(campo)
+        if valor and valor not in unidades:
+            unidades.append(valor)
+
+    if not unidades:
+        unidades = ["Boa Vista"]
+    return unidades
+
+
+def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
+    if df.empty:
+        return df
+    if "unidade" not in df.columns:
+        df = df.copy()
+        df["unidade"] = "Boa Vista"
+    if usuario_eh_geral(usuario):
+        return df
+    permitidas = unidades_permitidas_usuario(usuario)
+    return df[df["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(permitidas)]
+
+
+def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
+    unidades = unidades_permitidas_usuario(usuario)
+    if len(unidades) <= 1:
+        unidade = unidades[0] if unidades else "Boa Vista"
+        st.text_input("Unidade", value=unidade, disabled=True, key=f"{key}_disabled")
+        return unidade
+    return st.selectbox("Unidade *", unidades, key=key)
+
+
+def vincular_usuario_unidades(usuario_id: str, unidades: list[str]):
+    if not usuario_id or not unidades:
+        return
+    for unidade in unidades:
+        try:
+            supabase.table(TABELA_USUARIO_UNIDADES).insert({
+                "usuario_id": usuario_id,
+                "unidade_nome": unidade,
+            }).execute()
+        except Exception:
+            pass
 
 def criar_beneficio(nome: str):
     return supabase.table(TABELA_BENEFICIOS).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
@@ -896,7 +996,7 @@ def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cl
 
 
 def pode_ver_todos(usuario: dict) -> bool:
-    return usuario.get("perfil") in ["gestor", "supervisor"]
+    return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade"]
 
 # -------------------------------
 # LOGIN
@@ -958,6 +1058,7 @@ if perfil == "captador":
     if st.session_state.captador_pagina == "Novo Lead":
         abrir_card_mobile("Novo Lead", "Preencha os dados do cliente")
         with st.form("form_novo_lead_mobile", clear_on_submit=True):
+            unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
             cpf = st.text_input("CPF", placeholder="000.000.000-00")
             telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
@@ -996,7 +1097,7 @@ if perfil == "captador":
                 dados = {
                     "captador_id": usuario["id"],
                     "captador_nome": usuario["nome"],
-                    "unidade": "Boa Vista",
+                    "unidade": unidade_lead,
                     "nome_cliente": normalizar_texto(nome_cliente),
                     "cpf": cpf_limpo,
                     "telefone": formatar_telefone(telefone),
@@ -1242,6 +1343,7 @@ if pagina == "Novo Lead":
     with st.form("form_novo_lead", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
+            unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_desktop")
             nome_cliente = st.text_input("Nome do cliente *")
             cpf = st.text_input("CPF")
             telefone = st.text_input("Telefone *")
@@ -1268,7 +1370,7 @@ if pagina == "Novo Lead":
             dados = {
                 "captador_id": usuario["id"],
                 "captador_nome": usuario["nome"],
-                "unidade": "Boa Vista",
+                "unidade": unidade_lead,
                 "nome_cliente": normalizar_texto(nome_cliente),
                 "cpf": limpar_cpf(cpf),
                 "telefone": telefone.strip(),
@@ -1293,7 +1395,7 @@ if pagina == "Novo Lead":
 # -------------------------------
 elif pagina == "Minhas Captações":
     st.title("📋 Minhas Captações")
-    df = carregar_leads()
+    df = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df.empty:
         st.info("Nenhuma captação encontrada.")
@@ -1328,7 +1430,7 @@ elif pagina == "Minhas Captações":
 # -------------------------------
 elif pagina == "Painel Gestor":
     st.title("📊 Dashboard Executivo V360 Captação")
-    st.caption("Boa Vista • Visão executiva de captação, conversão, produtividade, bairros, locais e gargalos.")
+    st.caption("Visão executiva por unidade, captação, conversão, produtividade, bairros, locais e gargalos.")
 
     st.markdown(
         """
@@ -1365,7 +1467,7 @@ elif pagina == "Painel Gestor":
         unsafe_allow_html=True,
     )
 
-    df_original = carregar_leads()
+    df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df_original.empty:
         st.info("Nenhum dado encontrado. Cadastre alguns leads de teste para visualizar o executivo.")
@@ -1593,7 +1695,7 @@ elif pagina == "Painel Gestor":
 # -------------------------------
 elif pagina == "Insights V360":
     st.title("💡 Insights V360")
-    st.caption("Boa Vista • Inteligência comercial, oportunidades e alertas da captação.")
+    st.caption("Inteligência comercial por unidade, oportunidades e alertas da captação.")
 
     st.markdown(
         """
@@ -1639,7 +1741,7 @@ elif pagina == "Insights V360":
         unsafe_allow_html=True,
     )
 
-    df_original = carregar_leads()
+    df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
     if df_original.empty:
         st.info("Nenhum dado encontrado. Cadastre alguns leads para gerar os insights.")
         st.stop()
@@ -1879,7 +1981,7 @@ elif pagina == "Insights V360":
 elif pagina == "Atualizar Lead":
     st.title("✏️ Atualizar Lead")
     st.caption("Busque o lead, atualize o funil e registre o histórico do atendimento.")
-    df = carregar_leads()
+    df = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df.empty:
         st.info("Nenhum lead encontrado.")
@@ -2003,9 +2105,9 @@ elif pagina == "Atualizar Lead":
 # -------------------------------
 elif pagina == "Cadastros":
     st.title("⚙️ Cadastros")
-    st.caption("Cadastre benefícios, locais de captação e tipos de arquivos sem precisar alterar o código.")
+    st.caption("Cadastre benefícios, locais de captação, tipos de arquivos e unidades sem precisar alterar o código.")
 
-    tab1, tab2, tab3 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Unidades"])
     with tab1:
         st.subheader("Benefícios")
         with st.form("form_novo_beneficio"):
@@ -2061,12 +2163,39 @@ elif pagina == "Cadastros":
                     st.error(f"Erro ao cadastrar tipo de arquivo: {e}")
         st.dataframe(pd.DataFrame({"Tipos de arquivo ativos": listar_tipos_arquivo()}), use_container_width=True, hide_index=True)
 
+
+    with tab4:
+        st.subheader("Unidades")
+        with st.form("form_nova_unidade"):
+            colu1, colu2, colu3 = st.columns(3)
+            with colu1:
+                nome_unidade = st.text_input("Nome da unidade", placeholder="Ex.: Amazonas")
+            with colu2:
+                cidade_unidade = st.text_input("Cidade", placeholder="Ex.: Manaus")
+            with colu3:
+                estado_unidade = st.text_input("Estado", placeholder="Ex.: AM")
+            salvar_unidade = st.form_submit_button("Adicionar unidade")
+        if salvar_unidade:
+            if not nome_unidade.strip() or not cidade_unidade.strip() or not estado_unidade.strip():
+                st.error("Informe nome, cidade e estado da unidade.")
+            else:
+                try:
+                    criar_unidade(nome_unidade, cidade_unidade, estado_unidade)
+                    st.success("Unidade cadastrada com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar unidade: {e}")
+        unidades_df = pd.DataFrame(listar_unidades(True))
+        if not unidades_df.empty:
+            cols_unidades = [c for c in ["nome", "cidade", "estado", "ativo"] if c in unidades_df.columns]
+            st.dataframe(unidades_df[cols_unidades], use_container_width=True, hide_index=True)
+
 # -------------------------------
 # USUÁRIOS
 # -------------------------------
 elif pagina == "Usuários":
     st.title("👥 Usuários")
-    st.caption("Cadastre captadores, supervisores e gestores. O captador do lead será automático pelo login.")
+    st.caption("Cadastre captadores e gestores com acesso por unidade/região. O captador do lead será automático pelo login.")
 
     with st.form("form_usuario"):
         col1, col2 = st.columns(2)
@@ -2075,7 +2204,14 @@ elif pagina == "Usuários":
             email = st.text_input("E-mail")
         with col2:
             senha = st.text_input("Senha", type="password")
-            perfil = st.selectbox("Perfil", ["captador", "supervisor", "gestor"])
+            perfil = st.selectbox("Perfil", ["captador", "gestor_unidade", "gestor_regional", "gestor_geral", "supervisor"])
+            unidades_opts = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
+            unidades_usuario = st.multiselect(
+                "Unidades liberadas",
+                unidades_opts,
+                default=unidades_opts if perfil in ["gestor_geral", "supervisor"] else (unidades_opts[:1] if unidades_opts else []),
+                help="Captador e gestor de unidade veem apenas as unidades liberadas. Gestor geral vê todas."
+            )
         criar = st.form_submit_button("Criar Usuário")
 
     if criar:
@@ -2083,17 +2219,31 @@ elif pagina == "Usuários":
             st.error("Preencha nome, e-mail e senha.")
         else:
             try:
-                supabase.table(TABELA_USUARIOS).insert({
+                resp_user = supabase.table(TABELA_USUARIOS).insert({
                     "nome": normalizar_texto(nome),
                     "email": email.strip().lower(),
                     "senha": senha,
                     "perfil": perfil,
-                    "ativo": True
+                    "ativo": True,
+                    "unidade_padrao": unidades_usuario[0] if unidades_usuario else None,
                 }).execute()
+                novo_usuario_id = (resp_user.data or [{}])[0].get("id") if hasattr(resp_user, "data") else None
+                if novo_usuario_id:
+                    vincular_usuario_unidades(novo_usuario_id, unidades_usuario)
                 st.success("Usuário criado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao criar usuário: {e}")
 
     usuarios = listar_usuarios_ativos()
     st.subheader("Usuários ativos")
-    st.dataframe(pd.DataFrame(usuarios), use_container_width=True, hide_index=True)
+    dfu = pd.DataFrame(usuarios)
+    if not dfu.empty and "id" in dfu.columns:
+        def texto_unidades_liberadas(row):
+            perfil_row = row.get("perfil", "")
+            unidades_row = listar_unidades_usuario(str(row.get("id", "")))
+            if perfil_row in ["gestor_geral", "supervisor", "gestor"]:
+                return "Todas"
+            return ", ".join(unidades_row) if unidades_row else (row.get("unidade_padrao") or "Boa Vista")
+
+        dfu["unidades_liberadas"] = dfu.apply(texto_unidades_liberadas, axis=1)
+    st.dataframe(dfu, use_container_width=True, hide_index=True)
