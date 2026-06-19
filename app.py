@@ -26,10 +26,11 @@ TABELA_LEADS = "captacao_leads"
 TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
+TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v10-arquivos-zip"
+VERSAO_APP = "executivo-v360-captação-v11-docs-filtros"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -121,6 +122,22 @@ MOTIVOS_PERDA = [
     "", "Não possui direito", "Cliente desistiu", "Já possui advogado",
     "Não apresentou documentos", "Sem contato", "Benefício negado anteriormente",
     "Valor de honorários", "Outro"
+]
+
+TIPOS_ARQUIVO_PADRAO = [
+    "Documentos do cliente",
+    "RG/CNH",
+    "CPF",
+    "Comprovante de residência",
+    "Laudos",
+    "Exames",
+    "Receitas médicas",
+    "CNIS",
+    "Carteira de trabalho",
+    "Certidão",
+    "Procuração",
+    "Contrato",
+    "Outros",
 ]
 
 # -------------------------------
@@ -598,12 +615,31 @@ def listar_locais_captacao():
         return []
 
 
+def listar_tipos_arquivo():
+    try:
+        resp = (
+            supabase.table(TABELA_TIPOS_ARQUIVO)
+            .select("nome,ativo")
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        itens = [r["nome"] for r in (resp.data or []) if r.get("nome")]
+        return itens or TIPOS_ARQUIVO_PADRAO
+    except Exception:
+        return TIPOS_ARQUIVO_PADRAO
+
+
 def criar_beneficio(nome: str):
     return supabase.table(TABELA_BENEFICIOS).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
 
 
 def criar_local_captacao(nome: str):
     return supabase.table(TABELA_LOCAIS).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
+
+
+def criar_tipo_arquivo(nome: str):
+    return supabase.table(TABELA_TIPOS_ARQUIVO).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
 
 
 def salvar_historico(lead_id: str, usuario_nome: str, status: str, observacao: str, acao: str = "Atualização"):
@@ -935,7 +971,7 @@ if perfil == "captador":
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
-            tipo_documento_upload = st.selectbox("Tipo dos arquivos", ["Documentos do cliente", "RG/CNH", "CPF", "Comprovante de residência", "Laudos", "Outros"], key="tipo_doc_upload_mobile")
+            tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_mobile")
             arquivos_upload = st.file_uploader("Adicionar arquivos/documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
             enviar = st.form_submit_button("💾 SALVAR LEAD")
             st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
@@ -987,22 +1023,75 @@ if perfil == "captador":
                     st.error(f"Erro ao salvar lead: {e}")
 
     elif st.session_state.captador_pagina == "Minhas Captações":
-        abrir_card_mobile("Minhas Captações", "Últimos leads cadastrados")
+        abrir_card_mobile("Minhas Captações", "Filtre e acompanhe seus leads")
         df = carregar_leads()
         if df.empty:
             st.info("Nenhuma captação encontrada.")
         else:
             df = df[df["captador_id"].astype(str) == str(usuario["id"])]
             df = resumo_arquivos_para_leads(df)
-            status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD)
-            if status_filtro:
-                df = df[df["status_lead"].isin(status_filtro)]
-            colunas = [
-                "data_captacao", "nome_cliente", "telefone", "bairro", "tipo_beneficio", "status_lead",
-                "documentos_enviados", "documentos_baixados", "status_documentos"
-            ]
-            colunas = [c for c in colunas if c in df.columns]
-            st.dataframe(preparar_dataframe_exibicao(df[colunas]), use_container_width=True, hide_index=True)
+            if df.empty:
+                st.info("Você ainda não possui leads cadastrados.")
+            else:
+                hoje = date.today()
+                st.markdown("#### 📈 Meu resumo")
+                mes_ini = hoje.replace(day=1)
+                df_mes = df[df["data_captacao"].dt.date >= mes_ini].copy()
+                total_mes = len(df_mes)
+                conv_mes = int((df_mes["status_lead"] == "Convertido").sum()) if not df_mes.empty else 0
+                atendimento_mes = int((df_mes["status_lead"] == "Em atendimento").sum()) if not df_mes.empty else 0
+                docs_abertos = int((df["documentos_enviados"] > df["documentos_baixados"]).sum())
+                c1, c2 = st.columns(2)
+                c1.metric("Leads no mês", total_mes)
+                c2.metric("Convertidos", conv_mes)
+                c3, c4 = st.columns(2)
+                c3.metric("Em atendimento", atendimento_mes)
+                c4.metric("Docs a baixar", docs_abertos)
+
+                st.markdown("#### 🔎 Filtros")
+                periodo = st.selectbox("Período", ["Últimos 7 dias", "Últimos 30 dias", "Mês atual", "Todos", "Personalizado"], index=1, key="minhas_periodo_mobile")
+                data_ini = st.date_input("Data inicial", hoje - timedelta(days=30), key="minhas_data_ini_mobile")
+                data_fim = st.date_input("Data final", hoje, key="minhas_data_fim_mobile")
+                if periodo == "Últimos 7 dias":
+                    data_ini, data_fim = hoje - timedelta(days=7), hoje
+                elif periodo == "Últimos 30 dias":
+                    data_ini, data_fim = hoje - timedelta(days=30), hoje
+                elif periodo == "Mês atual":
+                    data_ini, data_fim = hoje.replace(day=1), hoje
+                elif periodo == "Todos":
+                    data_ini = df["data_captacao"].dt.date.min()
+                    data_fim = df["data_captacao"].dt.date.max()
+
+                status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD, key="minhas_status_mobile")
+                bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].fillna("").replace("", "Não informado").unique().tolist()), key="minhas_bairro_mobile")
+                local_filtro = st.multiselect("Localidade", sorted(df["local_captacao"].fillna("").replace("", "Não informado").unique().tolist()), key="minhas_local_mobile")
+                cidade_filtro = st.multiselect("Cidade/Unidade", sorted(df["unidade"].fillna("Boa Vista").replace("", "Boa Vista").unique().tolist()) if "unidade" in df.columns else ["Boa Vista"], key="minhas_cidade_mobile")
+                docs_filtro = st.selectbox("Documentos", ["Todos", "Com documentos não baixados", "Documentos baixados", "Sem documentos", "Com documentos"], key="minhas_docs_mobile")
+
+                df_filtrado = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)].copy()
+                if status_filtro:
+                    df_filtrado = df_filtrado[df_filtrado["status_lead"].isin(status_filtro)]
+                if bairro_filtro:
+                    df_filtrado = df_filtrado[df_filtrado["bairro"].fillna("").replace("", "Não informado").isin(bairro_filtro)]
+                if local_filtro:
+                    df_filtrado = df_filtrado[df_filtrado["local_captacao"].fillna("").replace("", "Não informado").isin(local_filtro)]
+                if cidade_filtro and "unidade" in df_filtrado.columns:
+                    df_filtrado = df_filtrado[df_filtrado["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(cidade_filtro)]
+                if docs_filtro == "Com documentos não baixados":
+                    df_filtrado = df_filtrado[df_filtrado["documentos_enviados"] > df_filtrado["documentos_baixados"]]
+                elif docs_filtro == "Documentos baixados":
+                    df_filtrado = df_filtrado[(df_filtrado["documentos_enviados"] > 0) & (df_filtrado["documentos_enviados"] == df_filtrado["documentos_baixados"])]
+                elif docs_filtro == "Sem documentos":
+                    df_filtrado = df_filtrado[df_filtrado["documentos_enviados"] == 0]
+                elif docs_filtro == "Com documentos":
+                    df_filtrado = df_filtrado[df_filtrado["documentos_enviados"] > 0]
+
+                colunas = [
+                    "data_captacao", "nome_cliente", "telefone", "bairro", "local_captacao", "unidade",
+                    "tipo_beneficio", "status_lead", "documentos_enviados", "documentos_baixados", "status_documentos"
+                ]
+                colunas = [c for c in colunas if c in df_filtrado.columns]
+                st.dataframe(preparar_dataframe_exibicao(df_filtrado[colunas]), use_container_width=True, hide_index=True)
         fechar_card_mobile()
 
     else:
@@ -1016,43 +1105,74 @@ if perfil == "captador":
                 st.info("Você ainda não possui leads cadastrados.")
             else:
                 df = resumo_arquivos_para_leads(df)
-                df["label_doc"] = (
-                    df["nome_cliente"].fillna("") + " | " +
-                    df["telefone"].fillna("") + " | " +
-                    df["bairro"].fillna("") + " | 📎 " +
-                    df["documentos_enviados"].astype(str) + " enviados / 📥 " +
-                    df["documentos_baixados"].astype(str) + " baixados"
+                st.markdown("#### 🔎 Localizar lead")
+                situacao_docs = st.selectbox(
+                    "Situação dos documentos",
+                    ["Todos", "Com documentos não baixados", "Documentos baixados", "Sem documentos", "Com documentos"],
+                    key="docs_situacao_mobile",
                 )
-                lead_label = st.selectbox("Selecione o lead", df["label_doc"].tolist())
-                lead = df[df["label_doc"] == lead_label].iloc[0]
+                busca_doc = st.text_input("Buscar por nome, CPF ou telefone", placeholder="Digite parte do nome, CPF ou telefone", key="docs_busca_mobile")
 
-                st.write(f"**Cliente:** {lead.get('nome_cliente','')}")
-                st.write(f"**Status:** {lead.get('status_lead','Novo')}")
-                st.write(f"📎 **Enviados:** {int(lead.get('documentos_enviados',0))} | 📥 **Baixados:** {int(lead.get('documentos_baixados',0))}")
-                if int(lead.get('documentos_enviados',0)) > 0 and int(lead.get('documentos_enviados',0)) == int(lead.get('documentos_baixados',0)):
-                    st.success("Documentação recebida/baixada pela equipe.")
-                elif int(lead.get('documentos_enviados',0)) > int(lead.get('documentos_baixados',0)):
-                    st.warning("Ainda há documentos aguardando download pela equipe.")
+                df_docs = df.copy()
+                if situacao_docs == "Com documentos não baixados":
+                    df_docs = df_docs[df_docs["documentos_enviados"] > df_docs["documentos_baixados"]]
+                elif situacao_docs == "Documentos baixados":
+                    df_docs = df_docs[(df_docs["documentos_enviados"] > 0) & (df_docs["documentos_enviados"] == df_docs["documentos_baixados"])]
+                elif situacao_docs == "Sem documentos":
+                    df_docs = df_docs[df_docs["documentos_enviados"] == 0]
+                elif situacao_docs == "Com documentos":
+                    df_docs = df_docs[df_docs["documentos_enviados"] > 0]
 
-                with st.form("form_add_docs_captador", clear_on_submit=True):
-                    tipo_documento_extra = st.selectbox("Tipo dos arquivos", ["Documentos do cliente", "RG/CNH", "CPF", "Comprovante de residência", "Laudos", "Outros"], key="tipo_doc_extra_mobile")
-                    arquivos_extra = st.file_uploader("Adicionar novos documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
-                    enviar_docs = st.form_submit_button("📎 ENVIAR DOCUMENTOS")
+                if busca_doc.strip():
+                    termo = busca_doc.strip().lower()
+                    mask = pd.Series(False, index=df_docs.index)
+                    for c in ["nome_cliente", "cpf", "telefone"]:
+                        if c in df_docs.columns:
+                            mask = mask | df_docs[c].fillna("").astype(str).str.lower().str.contains(termo, na=False)
+                    df_docs = df_docs[mask]
 
-                if enviar_docs:
-                    if not arquivos_extra:
-                        st.error("Selecione pelo menos um arquivo.")
+                if df_docs.empty:
+                    st.warning("Nenhum lead encontrado com os filtros selecionados.")
+                else:
+                    df_docs["label_doc"] = (
+                        df_docs["nome_cliente"].fillna("") + " | " +
+                        df_docs["telefone"].fillna("") + " | " +
+                        df_docs["bairro"].fillna("") + " | 📎 " +
+                        df_docs["documentos_enviados"].astype(str) + " enviados / 📥 " +
+                        df_docs["documentos_baixados"].astype(str) + " baixados"
+                    )
+                    lead_label = st.selectbox("Selecione o lead", df_docs["label_doc"].tolist())
+                    lead = df_docs[df_docs["label_doc"] == lead_label].iloc[0]
+
+                    st.write(f"**Cliente:** {lead.get('nome_cliente','')}")
+                    st.write(f"**Status:** {lead.get('status_lead','Novo')}")
+                    st.write(f"📎 **Enviados:** {int(lead.get('documentos_enviados',0))} | 📥 **Baixados:** {int(lead.get('documentos_baixados',0))}")
+                    if int(lead.get('documentos_enviados',0)) == 0:
+                        st.info("Este lead ainda não possui documentos enviados.")
+                    elif int(lead.get('documentos_enviados',0)) == int(lead.get('documentos_baixados',0)):
+                        st.success("Documentação recebida/baixada pela equipe.")
                     else:
-                        try:
-                            enviados = 0
-                            for arquivo in arquivos_extra:
-                                enviar_arquivo_temporario(str(lead["id"]), arquivo, tipo_documento_extra, usuario)
-                                enviados += 1
-                            salvar_historico(str(lead["id"]), usuario["nome"], lead.get("status_lead", "Novo"), f"{enviados} novo(s) arquivo(s) anexado(s) pelo captador.", "Arquivos anexados")
-                            st.success(f"{enviados} documento(s) enviado(s) com sucesso!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao enviar documentos: {e}")
+                        st.warning("Ainda há documentos aguardando download pela equipe.")
+
+                    with st.form("form_add_docs_captador", clear_on_submit=True):
+                        tipo_documento_extra = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_extra_mobile")
+                        arquivos_extra = st.file_uploader("Adicionar novos documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
+                        enviar_docs = st.form_submit_button("📎 ENVIAR DOCUMENTOS")
+
+                    if enviar_docs:
+                        if not arquivos_extra:
+                            st.error("Selecione pelo menos um arquivo.")
+                        else:
+                            try:
+                                enviados = 0
+                                for arquivo in arquivos_extra:
+                                    enviar_arquivo_temporario(str(lead["id"]), arquivo, tipo_documento_extra, usuario)
+                                    enviados += 1
+                                salvar_historico(str(lead["id"]), usuario["nome"], lead.get("status_lead", "Novo"), f"{enviados} novo(s) arquivo(s) anexado(s) pelo captador.", "Arquivos anexados")
+                                st.success(f"{enviados} documento(s) enviado(s) com sucesso!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Erro ao enviar documentos: {e}")
         fechar_card_mobile()
 
     if st.button("Sair"):
@@ -1136,7 +1256,7 @@ if pagina == "Novo Lead":
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
-            tipo_documento_upload = st.selectbox("Tipo dos arquivos", ["Documentos do cliente", "RG/CNH", "CPF", "Comprovante de residência", "Laudos", "Outros"], key="tipo_doc_upload_desktop")
+            tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_desktop")
             arquivos_upload = st.file_uploader("Adicionar arquivos/documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_desktop")
 
         enviar = st.form_submit_button("Salvar Lead")
@@ -1883,9 +2003,9 @@ elif pagina == "Atualizar Lead":
 # -------------------------------
 elif pagina == "Cadastros":
     st.title("⚙️ Cadastros")
-    st.caption("Cadastre benefícios e locais de captação sem precisar alterar o código.")
+    st.caption("Cadastre benefícios, locais de captação e tipos de arquivos sem precisar alterar o código.")
 
-    tab1, tab2 = st.tabs(["Benefícios", "Locais de Captação"])
+    tab1, tab2, tab3 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo"])
     with tab1:
         st.subheader("Benefícios")
         with st.form("form_novo_beneficio"):
@@ -1923,6 +2043,23 @@ elif pagina == "Cadastros":
             st.dataframe(pd.DataFrame({"Locais ativos": locais}), use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum local cadastrado ainda. O captador poderá digitar livremente até você cadastrar os principais locais.")
+
+    with tab3:
+        st.subheader("Tipos de Arquivo")
+        with st.form("form_novo_tipo_arquivo"):
+            nome_tipo_arquivo = st.text_input("Novo tipo de arquivo", placeholder="Ex.: Extrato CNIS, Foto do cliente, Comprovante médico")
+            salvar_tipo_arquivo = st.form_submit_button("Adicionar tipo de arquivo")
+        if salvar_tipo_arquivo:
+            if not nome_tipo_arquivo.strip():
+                st.error("Informe o tipo de arquivo.")
+            else:
+                try:
+                    criar_tipo_arquivo(nome_tipo_arquivo)
+                    st.success("Tipo de arquivo cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar tipo de arquivo: {e}")
+        st.dataframe(pd.DataFrame({"Tipos de arquivo ativos": listar_tipos_arquivo()}), use_container_width=True, hide_index=True)
 
 # -------------------------------
 # USUÁRIOS
