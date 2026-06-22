@@ -2265,6 +2265,56 @@ elif pagina == "Pendências":
             st.info("Nenhum lead disponível no seu escopo para abrir pendência.")
         else:
             df_select = df_leads_all.copy()
+            for col in ["nome_cliente", "cpf", "telefone", "bairro", "captador_nome", "status_lead", "local_captacao", "unidade"]:
+                if col not in df_select.columns:
+                    df_select[col] = ""
+                df_select[col] = df_select[col].fillna("").astype(str)
+
+            st.markdown("#### 🔎 Buscar cliente")
+            col_busca1, col_busca2, col_busca3, col_busca4 = st.columns([1.4, 1, 1, 1])
+            with col_busca1:
+                termo_lead = st.text_input(
+                    "Nome, CPF ou telefone",
+                    placeholder="Digite parte do nome, CPF ou telefone...",
+                    key="pend_busca_lead",
+                )
+            with col_busca2:
+                status_opcoes = sorted([x for x in df_select["status_lead"].dropna().unique().tolist() if x])
+                filtro_status_lead = st.selectbox("Status do lead", ["Todos"] + status_opcoes, key="pend_status_lead")
+            with col_busca3:
+                bairro_opcoes = sorted([x for x in df_select["bairro"].dropna().unique().tolist() if x])
+                filtro_bairro_lead = st.selectbox("Bairro", ["Todos"] + bairro_opcoes, key="pend_bairro_lead")
+            with col_busca4:
+                captador_opcoes = sorted([x for x in df_select["captador_nome"].dropna().unique().tolist() if x])
+                filtro_captador_lead = st.selectbox("Captador", ["Todos"] + captador_opcoes, key="pend_captador_lead")
+
+            if termo_lead:
+                termo_norm = termo_lead.lower().strip()
+                termo_dig = apenas_digitos(termo_lead)
+                mask_texto = (
+                    df_select["nome_cliente"].str.lower().str.contains(termo_norm, na=False) |
+                    df_select["bairro"].str.lower().str.contains(termo_norm, na=False) |
+                    df_select["local_captacao"].str.lower().str.contains(termo_norm, na=False) |
+                    df_select["captador_nome"].str.lower().str.contains(termo_norm, na=False)
+                )
+                if termo_dig:
+                    mask_texto = mask_texto | df_select["cpf"].apply(apenas_digitos).str.contains(termo_dig, na=False) | df_select["telefone"].apply(apenas_digitos).str.contains(termo_dig, na=False)
+                df_select = df_select[mask_texto]
+
+            if filtro_status_lead != "Todos":
+                df_select = df_select[df_select["status_lead"] == filtro_status_lead]
+            if filtro_bairro_lead != "Todos":
+                df_select = df_select[df_select["bairro"] == filtro_bairro_lead]
+            if filtro_captador_lead != "Todos":
+                df_select = df_select[df_select["captador_nome"] == filtro_captador_lead]
+
+            st.caption(f"{len(df_select)} cliente(s) encontrado(s) com os filtros selecionados.")
+
+            if df_select.empty:
+                st.warning("Nenhum cliente encontrado. Ajuste a busca ou limpe os filtros.")
+                st.stop()
+
+            df_select = df_select.sort_values("data_captacao", ascending=False) if "data_captacao" in df_select.columns else df_select
             df_select["label_lead"] = df_select.apply(label_lead, axis=1)
             with st.form("form_criar_pendencia"):
                 lead_label = st.selectbox("Cliente / Lead", df_select["label_lead"].tolist())
