@@ -1259,7 +1259,7 @@ if perfil == "captador":
         with st.form("form_novo_lead_mobile", clear_on_submit=True):
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
-            cpf = st.text_input("CPF", placeholder="000.000.000-00")
+            cpf = st.text_input("CPF *", placeholder="000.000.000-00")
             telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
             bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
             locais_opcoes = listar_locais_captacao()
@@ -1280,10 +1280,10 @@ if perfil == "captador":
         if enviar:
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
-            if not nome_cliente or not telefone or not bairro or not local_captacao:
+            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
             elif not cpf_valido_ou_vazio(cpf):
-                st.error("CPF inválido. Use 11 números ou deixe em branco.")
+                st.error("CPF inválido. Use 11 números.")
             elif not telefone_valido(telefone):
                 st.error("Telefone inválido. Use DDD + número, exemplo: (95) 99999-9999.")
             elif duplicado:
@@ -1616,7 +1616,7 @@ if pagina == "Novo Lead":
         with col1:
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_desktop")
             nome_cliente = st.text_input("Nome do cliente *")
-            cpf = st.text_input("CPF")
+            cpf = st.text_input("CPF *")
             telefone = st.text_input("Telefone *")
             bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
         with col2:
@@ -1635,15 +1635,28 @@ if pagina == "Novo Lead":
         enviar = st.form_submit_button("Salvar Lead")
 
     if enviar:
-        if not nome_cliente or not telefone or not bairro or not local_captacao:
+        cpf_limpo = limpar_cpf(cpf)
+        duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
+
+        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not local_captacao:
             st.error("Preencha os campos obrigatórios marcados com *.")
+        elif not cpf_valido_ou_vazio(cpf):
+            st.error("CPF inválido. Use 11 números.")
+        elif not telefone_valido(telefone):
+            st.error("Telefone inválido. Use DDD + número, exemplo: (95) 99999-9999.")
+        elif duplicado:
+            st.warning(
+                f"⚠️ Cliente já cadastrado: {duplicado.get('nome_cliente','')} | "
+                f"Captador: {duplicado.get('captador_nome','')} | "
+                f"Status: {duplicado.get('status_lead','')}"
+            )
         else:
             dados = {
                 "captador_id": usuario["id"],
                 "captador_nome": usuario["nome"],
                 "unidade": unidade_lead,
                 "nome_cliente": normalizar_texto(nome_cliente),
-                "cpf": limpar_cpf(cpf),
+                "cpf": cpf_limpo,
                 "telefone": telefone.strip(),
                 "bairro": bairro,
                 "local_captacao": normalizar_texto(local_captacao),
@@ -2381,43 +2394,157 @@ elif pagina == "Pendências":
         if dfp.empty:
             st.info("Nenhuma pendência encontrada.")
         else:
-            col1, col2, col3, col4 = st.columns(4)
+            # Garante colunas usadas nos filtros
+            for col in ["cliente_nome", "cpf", "telefone", "bairro", "unidade", "tipo_pendencia", "prioridade", "status", "visibilidade", "captador_destino_nome", "descricao"]:
+                if col not in dfp.columns:
+                    dfp[col] = ""
+                dfp[col] = dfp[col].fillna("").astype(str)
+
+            st.markdown("#### 🔎 Buscar e filtrar pendências")
+
+            col1, col2, col3 = st.columns([1.6, 1, 1])
             with col1:
-                status_p = st.multiselect("Status", STATUS_PENDENCIA, default=STATUS_PENDENCIA)
+                busca_p = st.text_input(
+                    "Buscar por cliente, CPF, telefone, captador ou descrição",
+                    placeholder="Digite nome, CPF, telefone, captador, tipo ou parte da descrição...",
+                    key="acompanhar_pend_busca",
+                )
             with col2:
-                docs_p = st.selectbox("Documentos", ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"])
+                status_p = st.multiselect(
+                    "Status da pendência",
+                    STATUS_PENDENCIA,
+                    default=STATUS_PENDENCIA,
+                    key="acompanhar_pend_status",
+                )
             with col3:
-                unidade_p = st.multiselect("Unidade", sorted(dfp["unidade"].fillna("Boa Vista").unique().tolist()))
+                docs_p = st.selectbox(
+                    "Situação dos documentos",
+                    ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"],
+                    key="acompanhar_pend_docs",
+                )
+
+            col4, col5, col6, col7 = st.columns(4)
             with col4:
-                busca_p = st.text_input("Buscar por cliente/CPF/captador")
+                unidade_p = st.multiselect(
+                    "Unidade",
+                    sorted([x for x in dfp["unidade"].fillna("Boa Vista").replace("", "Boa Vista").unique().tolist() if x]),
+                    key="acompanhar_pend_unidade",
+                )
+            with col5:
+                tipo_p = st.multiselect(
+                    "Tipo de pendência",
+                    sorted([x for x in dfp["tipo_pendencia"].dropna().unique().tolist() if x]),
+                    key="acompanhar_pend_tipo",
+                )
+            with col6:
+                captador_p = st.multiselect(
+                    "Captador",
+                    sorted([x for x in dfp["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").unique().tolist() if x]),
+                    key="acompanhar_pend_captador",
+                )
+            with col7:
+                bairro_p = st.multiselect(
+                    "Bairro",
+                    sorted([x for x in dfp["bairro"].fillna("").replace("", "Não informado").unique().tolist() if x]),
+                    key="acompanhar_pend_bairro",
+                )
+
+            col8, col9, col10 = st.columns(3)
+            with col8:
+                prioridade_p = st.multiselect(
+                    "Prioridade",
+                    PRIORIDADE_PENDENCIA,
+                    default=PRIORIDADE_PENDENCIA,
+                    key="acompanhar_pend_prioridade",
+                )
+            with col9:
+                visibilidade_p = st.selectbox(
+                    "Visibilidade",
+                    ["Todas", "Todos os captadores", "Captador específico"],
+                    key="acompanhar_pend_visibilidade",
+                )
+            with col10:
+                prazo_p = st.selectbox(
+                    "Prazo",
+                    ["Todos", "Vencidas", "Vencem hoje", "Próximas"],
+                    key="acompanhar_pend_prazo",
+                )
 
             dfp_f = dfp.copy()
+
             if status_p:
                 dfp_f = dfp_f[dfp_f["status"].fillna("Aberta").isin(status_p)]
+
             dfp_f = aplicar_filtro_documentos_df(dfp_f, docs_p)
+
             if unidade_p:
-                dfp_f = dfp_f[dfp_f["unidade"].fillna("Boa Vista").isin(unidade_p)]
+                dfp_f = dfp_f[dfp_f["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(unidade_p)]
+
+            if tipo_p:
+                dfp_f = dfp_f[dfp_f["tipo_pendencia"].isin(tipo_p)]
+
+            if captador_p:
+                dfp_f = dfp_f[dfp_f["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").isin(captador_p)]
+
+            if bairro_p:
+                dfp_f = dfp_f[dfp_f["bairro"].fillna("").replace("", "Não informado").isin(bairro_p)]
+
+            if prioridade_p:
+                dfp_f = dfp_f[dfp_f["prioridade"].fillna("Normal").replace("", "Normal").isin(prioridade_p)]
+
+            if visibilidade_p == "Todos os captadores":
+                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["todos", "todos_unidade", "todos os captadores da unidade"])]
+            elif visibilidade_p == "Captador específico":
+                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["captador", "captador específico", "captador especifico"])]
+
+            if prazo_p != "Todos" and "prazo" in dfp_f.columns:
+                prazo_dt = pd.to_datetime(dfp_f["prazo"], errors="coerce").dt.date
+                hoje_p = date.today()
+                if prazo_p == "Vencidas":
+                    dfp_f = dfp_f[prazo_dt < hoje_p]
+                elif prazo_p == "Vencem hoje":
+                    dfp_f = dfp_f[prazo_dt == hoje_p]
+                elif prazo_p == "Próximas":
+                    dfp_f = dfp_f[prazo_dt > hoje_p]
+
             if busca_p.strip():
                 termo = busca_p.strip().lower()
+                termo_dig = apenas_digitos(busca_p)
                 mask = pd.Series(False, index=dfp_f.index)
-                for c in ["cliente_nome", "cpf", "captador_destino_nome", "tipo_pendencia", "descricao"]:
+
+                for c in ["cliente_nome", "cpf", "telefone", "bairro", "captador_destino_nome", "tipo_pendencia", "descricao", "prioridade", "status"]:
                     if c in dfp_f.columns:
                         mask = mask | dfp_f[c].fillna("").astype(str).str.lower().str.contains(termo, na=False)
+
+                if termo_dig:
+                    if "cpf" in dfp_f.columns:
+                        mask = mask | dfp_f["cpf"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_dig, na=False)
+                    if "telefone" in dfp_f.columns:
+                        mask = mask | dfp_f["telefone"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_dig, na=False)
+
                 dfp_f = dfp_f[mask]
+
+            st.caption(f"{len(dfp_f)} pendência(s) encontrada(s) com os filtros selecionados.")
 
             if dfp_f.empty:
                 st.warning("Nenhuma pendência encontrada com os filtros selecionados.")
             else:
-                cols = ["criado_em", "cliente_nome", "cpf", "unidade", "tipo_pendencia", "prioridade", "prazo", "status", "visibilidade", "captador_destino_nome", "documentos_enviados", "documentos_baixados", "situacao_documentos"]
+                cols = ["criado_em", "cliente_nome", "cpf", "telefone", "bairro", "unidade", "tipo_pendencia", "prioridade", "prazo", "status", "visibilidade", "captador_destino_nome", "documentos_enviados", "documentos_baixados", "situacao_documentos"]
                 cols = [c for c in cols if c in dfp_f.columns]
                 st.dataframe(dfp_f[cols].rename(columns={
-                    "criado_em":"Criada em", "cliente_nome":"Cliente", "cpf":"CPF", "unidade":"Unidade",
+                    "criado_em":"Criada em", "cliente_nome":"Cliente", "cpf":"CPF", "telefone":"Telefone", "bairro":"Bairro", "unidade":"Unidade",
                     "tipo_pendencia":"Tipo", "prioridade":"Prioridade", "prazo":"Prazo", "status":"Status",
                     "visibilidade":"Visibilidade", "captador_destino_nome":"Captador",
                     "documentos_enviados":"Docs enviados", "documentos_baixados":"Docs baixados", "situacao_documentos":"Situação docs"
                 }), use_container_width=True, hide_index=True)
 
-                dfp_f["label"] = dfp_f["cliente_nome"].fillna("") + " | " + dfp_f["tipo_pendencia"].fillna("") + " | " + dfp_f["status"].fillna("Aberta")
+                dfp_f["label"] = (
+                    dfp_f["cliente_nome"].fillna("") + " | " +
+                    dfp_f["tipo_pendencia"].fillna("") + " | " +
+                    dfp_f["status"].fillna("Aberta") + " | 📎 " +
+                    dfp_f["documentos_enviados"].astype(str) + " / 📥 " +
+                    dfp_f["documentos_baixados"].astype(str)
+                )
                 pend_label = st.selectbox("Selecionar pendência para atualizar/baixar documentos", dfp_f["label"].tolist())
                 pend = dfp_f[dfp_f["label"] == pend_label].iloc[0]
                 st.write(f"**Descrição:** {pend.get('descricao','')}")
@@ -2440,6 +2567,7 @@ elif pagina == "Pendências":
 
                 if pend.get("lead_id"):
                     exibir_arquivos_do_lead(str(pend.get("lead_id")), usuario, pend.get("cliente_nome", "cliente"))
+
 
 # -------------------------------
 # ATUALIZAR LEAD - V2
