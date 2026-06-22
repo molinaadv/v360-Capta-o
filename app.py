@@ -1166,29 +1166,58 @@ def pode_gerenciar_usuarios(usuario: dict) -> bool:
 
 
 def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
-    if usuario.get("perfil") == "gestor_geral":
-        return ["captador", "supervisor", "gestor_regional", "gestor_geral"]
-    if usuario.get("perfil") == "gestor_regional":
-        return ["captador", "supervisor"]
+    perfil = usuario.get("perfil")
+
+    if perfil == "gestor_geral":
+        return [
+            "captador",
+            "supervisor",
+            "gestor_unidade",
+            "gestor_regional",
+            "gestor_geral",
+        ]
+
+    if perfil == "gestor_regional":
+        return [
+            "captador",
+            "supervisor",
+            "gestor_unidade",
+        ]
+
     return []
 
 
 def usuario_dentro_do_escopo_admin(admin: dict, alvo: dict) -> bool:
     if not admin or not alvo:
         return False
-    if admin.get("perfil") == "gestor_geral":
+
+    perfil_admin = admin.get("perfil")
+    perfil_alvo = alvo.get("perfil")
+
+    if perfil_admin == "gestor_geral":
         return True
-    if admin.get("perfil") == "gestor_regional":
-        if alvo.get("perfil") in ["gestor_geral", "gestor_regional"]:
+
+    if perfil_admin == "gestor_regional":
+        # Gestor regional não pode mexer em gestor geral nem em outro gestor regional.
+        if perfil_alvo in ["gestor_geral", "gestor_regional"]:
             return False
+
         unidades_admin = set(unidades_permitidas_usuario(admin))
         unidades_alvo = set(listar_unidades_usuario(str(alvo.get("id", ""))))
-        unidade_padrao = alvo.get("unidade_padrao") or alvo.get("unidade") or alvo.get("unidade_nome")
+
+        unidade_padrao = (
+            alvo.get("unidade_padrao")
+            or alvo.get("unidade")
+            or alvo.get("unidade_nome")
+        )
         if unidade_padrao:
             unidades_alvo.add(unidade_padrao)
+
         if not unidades_alvo:
             unidades_alvo.add("Boa Vista")
+
         return bool(unidades_admin.intersection(unidades_alvo))
+
     return False
 
 
