@@ -2855,6 +2855,13 @@ elif pagina == "Usuários":
     else:
         st.info("Gestor regional: pode criar e editar apenas captadores/supervisores das unidades liberadas.")
 
+    # Mensagens rápidas após salvar/criar usuário.
+    # Como o app usa st.rerun(), o st.success comum some rapidamente.
+    if st.session_state.get("mensagem_usuario_sucesso"):
+        st.success(st.session_state.pop("mensagem_usuario_sucesso"))
+    if st.session_state.get("mensagem_usuario_erro"):
+        st.error(st.session_state.pop("mensagem_usuario_erro"))
+
     tab_criar, tab_editar, tab_lista = st.tabs(["➕ Criar usuário", "✏️ Editar usuário", "📋 Lista de usuários"])
 
     with tab_criar:
@@ -2908,7 +2915,7 @@ elif pagina == "Usuários":
                     novo_usuario_id = (resp_user.data or [{}])[0].get("id") if hasattr(resp_user, "data") else None
                     if novo_usuario_id:
                         vincular_usuario_unidades(novo_usuario_id, unidades_usuario)
-                    st.success("Usuário criado com sucesso!")
+                    st.session_state["mensagem_usuario_sucesso"] = f"Usuário {normalizar_texto(nome)} criado com sucesso."
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao criar usuário: {e}")
@@ -3012,7 +3019,7 @@ elif pagina == "Usuários":
                         try:
                             atualizar_usuario(usuario_id, dados_update)
                             substituir_usuario_unidades(usuario_id, unidades_edit)
-                            st.success("Usuário atualizado com sucesso!")
+                            st.session_state["mensagem_usuario_sucesso"] = f"Usuário {normalizar_texto(nome_edit)} atualizado com sucesso."
                             st.rerun()
                         except Exception as e:
                             st.error(f"Erro ao atualizar usuário: {e}")
