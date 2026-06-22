@@ -26,6 +26,8 @@ TABELA_LEADS = "captacao_leads"
 TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
+TABELA_PENDENCIAS = "captacao_pendencias"
+TABELA_TIPOS_PENDENCIA = "captacao_tipos_pendencia"
 TABELA_UNIDADES = "captacao_unidades"
 TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades"
 TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
@@ -124,6 +126,13 @@ MOTIVOS_PERDA = [
     "", "Não possui direito", "Cliente desistiu", "Já possui advogado",
     "Não apresentou documentos", "Sem contato", "Benefício negado anteriormente",
     "Valor de honorários", "Outro"
+]
+
+STATUS_PENDENCIA = ["Aberta", "Em andamento", "Resolvida", "Cancelada"]
+PRIORIDADE_PENDENCIA = ["Normal", "Alta", "Urgente", "Baixa"]
+TIPOS_PENDENCIA_PADRAO = [
+    "RG/CNH", "CPF", "Comprovante de residência", "Laudo médico", "CNIS",
+    "Carteira de trabalho", "Procuração", "Contrato", "Extrato bancário", "Outro"
 ]
 
 TIPOS_ARQUIVO_PADRAO = [
@@ -775,6 +784,125 @@ def criar_local_captacao(nome: str):
 def criar_tipo_arquivo(nome: str):
     return supabase.table(TABELA_TIPOS_ARQUIVO).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
 
+def listar_tipos_pendencia():
+    try:
+        resp = (
+            supabase.table(TABELA_TIPOS_PENDENCIA)
+            .select("nome,ativo")
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        itens = [r["nome"] for r in (resp.data or []) if r.get("nome")]
+        return itens or TIPOS_PENDENCIA_PADRAO
+    except Exception:
+        return TIPOS_PENDENCIA_PADRAO
+
+
+def criar_tipo_pendencia(nome: str):
+    return supabase.table(TABELA_TIPOS_PENDENCIA).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
+
+
+def salvar_pendencia(dados: dict):
+    return supabase.table(TABELA_PENDENCIAS).insert(dados).execute()
+
+
+def atualizar_pendencia(pendencia_id: str, dados: dict):
+    return supabase.table(TABELA_PENDENCIAS).update(dados).eq("id", pendencia_id).execute()
+
+
+def carregar_pendencias() -> pd.DataFrame:
+    try:
+        resp = (
+            supabase.table(TABELA_PENDENCIAS)
+            .select("*")
+            .order("criado_em", desc=True)
+            .execute()
+        )
+        df = pd.DataFrame(resp.data or [])
+        for col in ["criado_em", "prazo", "resolvido_em"]:
+            if not df.empty and col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+        return df
+    except Exception as e:
+        st.error(f"Erro ao carregar pendências: {e}")
+        return pd.DataFrame()
+
+
+def filtrar_pendencias_por_escopo(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df2 = df.copy()
+    for col in ["unidade", "visibilidade", "captador_destino_id"]:
+        if col not in df2.columns:
+            df2[col] = ""
+    df2["unidade"] = df2["unidade"].fillna("Boa Vista").replace("", "Boa Vista")
+
+    if usuario.get("perfil") == "captador":
+        uid = str(usuario.get("id", ""))
+        unidades = unidades_permitidas_usuario(usuario)
+        mask_unidade = df2["unidade"].isin(unidades)
+        mask_vis = df2["visibilidade"].fillna("Todos").isin(["Todos", "todos", "todos_unidade"])
+        mask_dest = df2["captador_destino_id"].fillna("").astype(str).eq(uid)
+        return df2[mask_unidade & (mask_vis | mask_dest)]
+
+    if usuario_eh_geral(usuario):
+        return df2
+    unidades = unidades_permitidas_usuario(usuario)
+    return df2[df2["unidade"].isin(unidades)]
+
+
+def resumo_documentos_pendencias(df_pend: pd.DataFrame) -> pd.DataFrame:
+    if df_pend.empty or "lead_id" not in df_pend.columns:
+        return df_pend
+    df2 = df_pend.copy()
+    df2["documentos_enviados"] = 0
+    df2["documentos_baixados"] = 0
+    df2["situacao_documentos"] = "Sem documentos"
+    lead_ids = [str(x) for x in df2["lead_id"].dropna().astype(str).tolist() if str(x)]
+    arquivos = carregar_arquivos_por_leads(lead_ids)
+    if arquivos.empty:
+        return df2
+    arquivos["lead_id"] = arquivos["lead_id"].astype(str)
+    arquivos["baixado"] = arquivos["status_arquivo"].fillna("Pendente").eq("Baixado")
+    resumo = arquivos.groupby("lead_id").agg(
+        documentos_enviados_calc=("status_arquivo", "count"),
+        documentos_baixados_calc=("baixado", "sum"),
+    ).reset_index()
+    resumo["documentos_baixados_calc"] = resumo["documentos_baixados_calc"].astype(int)
+    df2["lead_id_str"] = df2["lead_id"].fillna("").astype(str)
+    df2 = df2.merge(resumo, left_on="lead_id_str", right_on="lead_id", how="left", suffixes=("", "_r"))
+    df2["documentos_enviados"] = df2["documentos_enviados_calc"].fillna(0).astype(int) if "documentos_enviados_calc" in df2.columns else 0
+    df2["documentos_baixados"] = df2["documentos_baixados_calc"].fillna(0).astype(int) if "documentos_baixados_calc" in df2.columns else 0
+    df2["situacao_documentos"] = df2.apply(
+        lambda r: "Sem documentos" if r["documentos_enviados"] == 0 else (
+            "Documentos baixados" if r["documentos_enviados"] == r["documentos_baixados"] else (
+                "Parcialmente baixados" if r["documentos_baixados"] > 0 else "Não baixados"
+            )
+        ),
+        axis=1,
+    )
+    return df2.drop(columns=[c for c in ["lead_id_str", "lead_id_r", "documentos_enviados_calc", "documentos_baixados_calc"] if c in df2.columns])
+
+
+def aplicar_filtro_documentos_df(df: pd.DataFrame, filtro: str) -> pd.DataFrame:
+    if df.empty or filtro == "Todos":
+        return df
+    if filtro == "Não baixados":
+        return df[(df["documentos_enviados"] > 0) & (df["documentos_baixados"] == 0)]
+    if filtro == "Parcialmente baixados":
+        return df[(df["documentos_baixados"] > 0) & (df["documentos_baixados"] < df["documentos_enviados"])]
+    if filtro == "Documentos baixados":
+        return df[(df["documentos_enviados"] > 0) & (df["documentos_baixados"] == df["documentos_enviados"])]
+    if filtro == "Sem documentos":
+        return df[df["documentos_enviados"] == 0]
+    return df
+
+
+def label_lead(row) -> str:
+    cpf = formatar_cpf(row.get("cpf", "") or "")
+    return f"{row.get('nome_cliente','')} | {cpf} | {row.get('telefone','')} | {row.get('bairro','')}"
+
 
 def salvar_historico(lead_id: str, usuario_nome: str, status: str, observacao: str, acao: str = "Atualização"):
     if not lead_id:
@@ -1108,8 +1236,8 @@ if perfil == "captador":
     aplicar_css_mobile()
     header_mobile()
 
-    opcoes_captador = ["➕ Novo Lead", "📋 Minhas", "📎 Documentos"]
-    mapa_captador = {"➕ Novo Lead": "Novo Lead", "📋 Minhas": "Minhas Captações", "📎 Documentos": "Documentos"}
+    opcoes_captador = ["➕ Novo Lead", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
+    mapa_captador = {"➕ Novo Lead": "Novo Lead", "📋 Minhas": "Minhas Captações", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
     pagina_atual_label = next((k for k, v in mapa_captador.items() if v == st.session_state.captador_pagina), "➕ Novo Lead")
     st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
     nav_escolhida = st.radio(
@@ -1266,6 +1394,76 @@ if perfil == "captador":
                 st.dataframe(preparar_dataframe_exibicao(df_filtrado[colunas]), use_container_width=True, hide_index=True)
         fechar_card_mobile()
 
+    elif st.session_state.captador_pagina == "Pendências":
+        abrir_card_mobile("Pendências", "Documentos solicitados pela unidade")
+        dfp = carregar_pendencias()
+        dfp = filtrar_pendencias_por_escopo(dfp, usuario)
+        dfp = resumo_documentos_pendencias(dfp)
+        if dfp.empty:
+            st.info("Nenhuma pendência documental para você no momento.")
+        else:
+            st.markdown("#### 🔎 Filtros")
+            busca_pend = st.text_input("Buscar por cliente, CPF ou descrição", key="pend_busca_captador")
+            status_pend = st.multiselect("Status", STATUS_PENDENCIA, default=["Aberta", "Em andamento"], key="pend_status_captador")
+            docs_pend = st.selectbox("Situação dos documentos", ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"], key="pend_docs_captador")
+
+            dfp_f = dfp.copy()
+            if status_pend:
+                dfp_f = dfp_f[dfp_f["status"].fillna("Aberta").isin(status_pend)]
+            dfp_f = aplicar_filtro_documentos_df(dfp_f, docs_pend)
+            if busca_pend.strip():
+                termo = busca_pend.strip().lower()
+                mask = pd.Series(False, index=dfp_f.index)
+                for c in ["cliente_nome", "cpf", "descricao", "tipo_pendencia"]:
+                    if c in dfp_f.columns:
+                        mask = mask | dfp_f[c].fillna("").astype(str).str.lower().str.contains(termo, na=False)
+                dfp_f = dfp_f[mask]
+
+            if dfp_f.empty:
+                st.warning("Nenhuma pendência encontrada com os filtros selecionados.")
+            else:
+                dfp_f["label"] = (
+                    dfp_f["cliente_nome"].fillna("") + " | " +
+                    dfp_f["tipo_pendencia"].fillna("") + " | " +
+                    dfp_f["status"].fillna("Aberta") + " | 📎 " +
+                    dfp_f["documentos_enviados"].astype(str) + " / 📥 " +
+                    dfp_f["documentos_baixados"].astype(str)
+                )
+                pend_label = st.selectbox("Selecione a pendência", dfp_f["label"].tolist(), key="pend_select_captador")
+                pend = dfp_f[dfp_f["label"] == pend_label].iloc[0]
+                st.write(f"**Cliente:** {pend.get('cliente_nome','')}")
+                st.write(f"**Tipo:** {pend.get('tipo_pendencia','')}")
+                st.write(f"**Descrição:** {pend.get('descricao','')}")
+                st.write(f"**Prioridade:** {pend.get('prioridade','Normal')} | **Status:** {pend.get('status','Aberta')}")
+                st.write(f"📎 **Enviados:** {int(pend.get('documentos_enviados',0))} | 📥 **Baixados:** {int(pend.get('documentos_baixados',0))}")
+
+                with st.form("form_docs_pend_captador", clear_on_submit=True):
+                    novo_status_p = st.selectbox("Atualizar status da pendência", STATUS_PENDENCIA, index=STATUS_PENDENCIA.index(pend.get("status", "Aberta")) if pend.get("status", "Aberta") in STATUS_PENDENCIA else 0)
+                    obs_p = st.text_area("Observação", placeholder="Ex.: Cliente entregou laudo atualizado")
+                    tipo_doc_p = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_pend_captador")
+                    arquivos_p = st.file_uploader("Adicionar documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_pend_captador")
+                    salvar_p = st.form_submit_button("📎 ENVIAR / ATUALIZAR")
+                if salvar_p:
+                    try:
+                        enviados = 0
+                        lead_id_p = str(pend.get("lead_id", ""))
+                        if arquivos_p and lead_id_p:
+                            for arquivo in arquivos_p:
+                                enviar_arquivo_temporario(lead_id_p, arquivo, tipo_doc_p, usuario)
+                                enviados += 1
+                            salvar_historico(lead_id_p, usuario["nome"], novo_status_p, f"{enviados} arquivo(s) enviado(s) para pendência: {pend.get('tipo_pendencia','')}.", "Pendência documental")
+                        dados_up = {"status": novo_status_p, "atualizado_em": datetime.now(timezone.utc).isoformat()}
+                        if novo_status_p == "Resolvida":
+                            dados_up["resolvido_em"] = datetime.now(timezone.utc).isoformat()
+                            dados_up["resolvido_por"] = usuario.get("nome")
+                        atualizar_pendencia(str(pend["id"]), dados_up)
+                        st.success("Pendência atualizada com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao atualizar pendência: {e}")
+
+        fechar_card_mobile()
+
     else:
         abrir_card_mobile("Documentos", "Adicione documentos em leads já cadastrados")
         df = carregar_leads()
@@ -1391,6 +1589,7 @@ if pode_ver_todos(usuario):
         "📊 Dashboard Executivo": "Painel Gestor",
         "💡 Insights V360": "Insights V360",
         "✏️ Atualizar Lead": "Atualizar Lead",
+        "📌 Pendências": "Pendências",
         "⚙️ Cadastros": "Cadastros",
     })
     if pode_gerenciar_usuarios(usuario):
@@ -2048,6 +2247,151 @@ elif pagina == "Insights V360":
         st.markdown(f"<div class='alert-card'>🚨 {item}</div>", unsafe_allow_html=True)
 
 # -------------------------------
+# PENDÊNCIAS DOCUMENTAIS
+# -------------------------------
+elif pagina == "Pendências":
+    st.title("📌 Pendências Documentais")
+    st.caption("Solicite documentos aos captadores e acompanhe downloads da documentação.")
+
+    df_leads_all = aplicar_escopo_unidade(carregar_leads(), usuario)
+    usuarios_ativos = listar_usuarios_ativos()
+    unidades_permitidas = unidades_permitidas_usuario(usuario)
+
+    tab_criar, tab_lista = st.tabs(["Abrir Pendência", "Acompanhar Pendências"])
+
+    with tab_criar:
+        st.subheader("Abrir nova pendência")
+        if df_leads_all.empty:
+            st.info("Nenhum lead disponível no seu escopo para abrir pendência.")
+        else:
+            df_select = df_leads_all.copy()
+            df_select["label_lead"] = df_select.apply(label_lead, axis=1)
+            with st.form("form_criar_pendencia"):
+                lead_label = st.selectbox("Cliente / Lead", df_select["label_lead"].tolist())
+                lead = df_select[df_select["label_lead"] == lead_label].iloc[0]
+                colp1, colp2 = st.columns(2)
+                with colp1:
+                    tipo_pend = st.selectbox("Tipo de pendência", listar_tipos_pendencia())
+                    prioridade = st.selectbox("Prioridade", PRIORIDADE_PENDENCIA)
+                    prazo = st.date_input("Prazo", date.today() + timedelta(days=3))
+                with colp2:
+                    visibilidade = st.radio("Visibilidade", ["Todos os captadores da unidade", "Captador específico"], horizontal=False)
+                    captadores = [u for u in usuarios_ativos if u.get("perfil") == "captador"]
+                    # Mantém somente captadores do escopo do gestor quando possível
+                    captadores_escopo = []
+                    for c in captadores:
+                        us = listar_unidades_usuario(str(c.get("id", "")))
+                        unidade_c = c.get("unidade_padrao") or c.get("unidade") or c.get("unidade_nome")
+                        if unidade_c and unidade_c not in us:
+                            us.append(unidade_c)
+                        if not us:
+                            us = [lead.get("unidade", "Boa Vista")]
+                        if set(us).intersection(set(unidades_permitidas)):
+                            captadores_escopo.append(c)
+                    nomes_capt = [c.get("nome") for c in captadores_escopo]
+                    captador_nome = st.selectbox("Captador", nomes_capt, disabled=(visibilidade == "Todos os captadores da unidade")) if nomes_capt else ""
+                descricao = st.text_area("Descrição da pendência", placeholder="Ex.: Solicitar laudo médico atualizado e comprovante de residência.")
+                criar_p = st.form_submit_button("📌 Abrir pendência")
+
+            if criar_p:
+                try:
+                    captador_destino = None
+                    if visibilidade == "Captador específico" and captador_nome:
+                        captador_destino = next((c for c in captadores_escopo if c.get("nome") == captador_nome), None)
+                    dados = {
+                        "lead_id": str(lead.get("id")),
+                        "cliente_nome": lead.get("nome_cliente"),
+                        "cpf": lead.get("cpf"),
+                        "telefone": lead.get("telefone"),
+                        "unidade": lead.get("unidade") or "Boa Vista",
+                        "bairro": lead.get("bairro"),
+                        "tipo_pendencia": tipo_pend,
+                        "descricao": descricao.strip(),
+                        "prioridade": prioridade,
+                        "prazo": prazo.isoformat(),
+                        "status": "Aberta",
+                        "visibilidade": "Todos" if visibilidade == "Todos os captadores da unidade" else "Captador",
+                        "captador_destino_id": str(captador_destino.get("id")) if captador_destino else None,
+                        "captador_destino_nome": captador_destino.get("nome") if captador_destino else None,
+                        "criado_por_id": str(usuario.get("id")),
+                        "criado_por_nome": usuario.get("nome"),
+                    }
+                    salvar_pendencia(dados)
+                    salvar_historico(str(lead.get("id")), usuario.get("nome", ""), "Pendência aberta", descricao.strip(), "Pendência documental")
+                    st.success("Pendência aberta com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao abrir pendência: {e}")
+
+    with tab_lista:
+        st.subheader("Acompanhar pendências")
+        dfp = carregar_pendencias()
+        dfp = filtrar_pendencias_por_escopo(dfp, usuario)
+        dfp = resumo_documentos_pendencias(dfp)
+        if dfp.empty:
+            st.info("Nenhuma pendência encontrada.")
+        else:
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                status_p = st.multiselect("Status", STATUS_PENDENCIA, default=STATUS_PENDENCIA)
+            with col2:
+                docs_p = st.selectbox("Documentos", ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"])
+            with col3:
+                unidade_p = st.multiselect("Unidade", sorted(dfp["unidade"].fillna("Boa Vista").unique().tolist()))
+            with col4:
+                busca_p = st.text_input("Buscar por cliente/CPF/captador")
+
+            dfp_f = dfp.copy()
+            if status_p:
+                dfp_f = dfp_f[dfp_f["status"].fillna("Aberta").isin(status_p)]
+            dfp_f = aplicar_filtro_documentos_df(dfp_f, docs_p)
+            if unidade_p:
+                dfp_f = dfp_f[dfp_f["unidade"].fillna("Boa Vista").isin(unidade_p)]
+            if busca_p.strip():
+                termo = busca_p.strip().lower()
+                mask = pd.Series(False, index=dfp_f.index)
+                for c in ["cliente_nome", "cpf", "captador_destino_nome", "tipo_pendencia", "descricao"]:
+                    if c in dfp_f.columns:
+                        mask = mask | dfp_f[c].fillna("").astype(str).str.lower().str.contains(termo, na=False)
+                dfp_f = dfp_f[mask]
+
+            if dfp_f.empty:
+                st.warning("Nenhuma pendência encontrada com os filtros selecionados.")
+            else:
+                cols = ["criado_em", "cliente_nome", "cpf", "unidade", "tipo_pendencia", "prioridade", "prazo", "status", "visibilidade", "captador_destino_nome", "documentos_enviados", "documentos_baixados", "situacao_documentos"]
+                cols = [c for c in cols if c in dfp_f.columns]
+                st.dataframe(dfp_f[cols].rename(columns={
+                    "criado_em":"Criada em", "cliente_nome":"Cliente", "cpf":"CPF", "unidade":"Unidade",
+                    "tipo_pendencia":"Tipo", "prioridade":"Prioridade", "prazo":"Prazo", "status":"Status",
+                    "visibilidade":"Visibilidade", "captador_destino_nome":"Captador",
+                    "documentos_enviados":"Docs enviados", "documentos_baixados":"Docs baixados", "situacao_documentos":"Situação docs"
+                }), use_container_width=True, hide_index=True)
+
+                dfp_f["label"] = dfp_f["cliente_nome"].fillna("") + " | " + dfp_f["tipo_pendencia"].fillna("") + " | " + dfp_f["status"].fillna("Aberta")
+                pend_label = st.selectbox("Selecionar pendência para atualizar/baixar documentos", dfp_f["label"].tolist())
+                pend = dfp_f[dfp_f["label"] == pend_label].iloc[0]
+                st.write(f"**Descrição:** {pend.get('descricao','')}")
+                st.write(f"📎 **Enviados:** {int(pend.get('documentos_enviados',0))} | 📥 **Baixados:** {int(pend.get('documentos_baixados',0))}")
+
+                with st.form("form_update_pendencia_gestor"):
+                    novo_status = st.selectbox("Status da pendência", STATUS_PENDENCIA, index=STATUS_PENDENCIA.index(pend.get("status", "Aberta")) if pend.get("status", "Aberta") in STATUS_PENDENCIA else 0)
+                    obs_status = st.text_area("Observação da atualização", placeholder="Ex.: Documentos recebidos e conferidos.")
+                    salvar_status = st.form_submit_button("Salvar status")
+                if salvar_status:
+                    dados_up = {"status": novo_status, "atualizado_em": datetime.now(timezone.utc).isoformat()}
+                    if novo_status == "Resolvida":
+                        dados_up["resolvido_em"] = datetime.now(timezone.utc).isoformat()
+                        dados_up["resolvido_por"] = usuario.get("nome")
+                    atualizar_pendencia(str(pend["id"]), dados_up)
+                    if pend.get("lead_id"):
+                        salvar_historico(str(pend.get("lead_id")), usuario.get("nome", ""), novo_status, obs_status.strip() or f"Pendência alterada para {novo_status}.", "Pendência documental")
+                    st.success("Pendência atualizada.")
+                    st.rerun()
+
+                if pend.get("lead_id"):
+                    exibir_arquivos_do_lead(str(pend.get("lead_id")), usuario, pend.get("cliente_nome", "cliente"))
+
+# -------------------------------
 # ATUALIZAR LEAD - V2
 # -------------------------------
 elif pagina == "Atualizar Lead":
@@ -2179,7 +2523,7 @@ elif pagina == "Cadastros":
     st.title("⚙️ Cadastros")
     st.caption("Cadastre benefícios, locais de captação, tipos de arquivos e unidades sem precisar alterar o código.")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Unidades"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Tipos de Pendência", "Unidades"])
     with tab1:
         st.subheader("Benefícios")
         with st.form("form_novo_beneficio"):
@@ -2237,6 +2581,23 @@ elif pagina == "Cadastros":
 
 
     with tab4:
+        st.subheader("Tipos de Pendência")
+        with st.form("form_novo_tipo_pendencia"):
+            nome_tp = st.text_input("Novo tipo de pendência", placeholder="Ex.: Laudo atualizado")
+            salvar_tp = st.form_submit_button("Adicionar tipo")
+        if salvar_tp:
+            if not nome_tp.strip():
+                st.error("Informe o tipo de pendência.")
+            else:
+                try:
+                    criar_tipo_pendencia(nome_tp)
+                    st.success("Tipo de pendência cadastrado!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar tipo de pendência: {e}")
+        st.dataframe(pd.DataFrame({"Tipos de pendência ativos": listar_tipos_pendencia()}), use_container_width=True, hide_index=True)
+
+    with tab5:
         st.subheader("Unidades")
         with st.form("form_nova_unidade"):
             colu1, colu2, colu3 = st.columns(3)
