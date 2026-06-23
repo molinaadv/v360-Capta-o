@@ -34,7 +34,7 @@ TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v13-editar-usuarios"
+VERSAO_APP = "executivo-v360-captação-v14-cidades-por-estado"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -111,6 +111,30 @@ BAIRROS_BOA_VISTA = [
     "União",
     "Outro",
 ]
+
+
+CIDADES_POR_UF = {
+    "AM": [
+        "Alvarães", "Amaturá", "Anamã", "Anori", "Apuí", "Atalaia do Norte",
+        "Autazes", "Barcelos", "Barreirinha", "Benjamin Constant", "Beruri",
+        "Boa Vista do Ramos", "Boca do Acre", "Borba", "Caapiranga", "Canutama",
+        "Carauari", "Careiro", "Careiro da Várzea", "Coari", "Codajás",
+        "Eirunepé", "Envira", "Fonte Boa", "Guajará", "Humaitá", "Ipixuna",
+        "Iranduba", "Itacoatiara", "Itamarati", "Itapiranga", "Japurá", "Juruá",
+        "Jutaí", "Lábrea", "Manacapuru", "Manaquiri", "Manaus", "Manicoré",
+        "Maraã", "Maués", "Nhamundá", "Nova Olinda do Norte", "Novo Airão",
+        "Novo Aripuanã", "Parintins", "Pauini", "Presidente Figueiredo",
+        "Rio Preto da Eva", "Santa Isabel do Rio Negro", "Santo Antônio do Içá",
+        "São Gabriel da Cachoeira", "São Paulo de Olivença", "São Sebastião do Uatumã",
+        "Silves", "Tabatinga", "Tapauá", "Tefé", "Tonantins", "Uarini",
+        "Urucará", "Urucurituba", "Outro",
+    ],
+    "RR": [
+        "Alto Alegre", "Amajari", "Boa Vista", "Bonfim", "Cantá", "Caracaraí",
+        "Caroebe", "Iracema", "Mucajaí", "Normandia", "Pacaraima",
+        "Rorainópolis", "São João da Baliza", "São Luiz", "Uiramutã", "Outro",
+    ],
+}
 
 
 AREAS_ACAO = ["Previdenciário", "Trabalhista", "Cível", "Família", "Outro"]
@@ -761,6 +785,33 @@ def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
     return st.selectbox("Unidade *", unidades, key=key)
 
 
+def estado_da_unidade(unidade_nome: str) -> str:
+    unidade_nome_norm = (unidade_nome or "").strip().lower()
+    try:
+        for u in listar_unidades(True):
+            if str(u.get("nome", "")).strip().lower() == unidade_nome_norm:
+                return str(u.get("estado", "")).strip().upper() or "RR"
+    except Exception:
+        pass
+    if "amazonas" in unidade_nome_norm or unidade_nome_norm in ["manaus", "am"]:
+        return "AM"
+    return "RR"
+
+
+def cidades_da_unidade(unidade_nome: str) -> list[str]:
+    uf = estado_da_unidade(unidade_nome)
+    return CIDADES_POR_UF.get(uf, ["Outro"])
+
+
+def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -> str:
+    uf = estado_da_unidade(unidade_nome)
+    cidades = cidades_da_unidade(unidade_nome)
+    cidade = st.selectbox(f"Cidade * ({uf})", cidades, key=key)
+    if cidade == "Outro":
+        return normalizar_texto(st.text_input("Digite a cidade *", key=f"{key}_outro"))
+    return cidade
+
+
 def vincular_usuario_unidades(usuario_id: str, unidades: list[str]):
     if not usuario_id or not unidades:
         return
@@ -1287,6 +1338,7 @@ if perfil == "captador":
         abrir_card_mobile("Novo Lead", "Preencha os dados do cliente")
         with st.form("form_novo_lead_mobile", clear_on_submit=True):
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
+            cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_mobile")
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
             cpf = st.text_input("CPF *", placeholder="000.000.000-00")
             telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
@@ -1309,7 +1361,7 @@ if perfil == "captador":
         if enviar:
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
-            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not local_captacao:
+            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
             elif not cpf_valido_ou_vazio(cpf):
                 st.error("CPF inválido. Use 11 números.")
@@ -1326,6 +1378,7 @@ if perfil == "captador":
                     "captador_id": usuario["id"],
                     "captador_nome": usuario["nome"],
                     "unidade": unidade_lead,
+                    "cidade": cidade_lead,
                     "nome_cliente": normalizar_texto(nome_cliente),
                     "cpf": cpf_limpo,
                     "telefone": formatar_telefone(telefone),
@@ -1394,7 +1447,9 @@ if perfil == "captador":
                 status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD, key="minhas_status_mobile")
                 bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].fillna("").replace("", "Não informado").unique().tolist()), key="minhas_bairro_mobile")
                 local_filtro = st.multiselect("Localidade", sorted(df["local_captacao"].fillna("").replace("", "Não informado").unique().tolist()), key="minhas_local_mobile")
-                cidade_filtro = st.multiselect("Cidade/Unidade", sorted(df["unidade"].fillna("Boa Vista").replace("", "Boa Vista").unique().tolist()) if "unidade" in df.columns else ["Boa Vista"], key="minhas_cidade_mobile")
+                if "cidade" not in df.columns:
+                    df["cidade"] = df["unidade"].fillna("Boa Vista") if "unidade" in df.columns else "Boa Vista"
+                cidade_filtro = st.multiselect("Cidade", sorted(df["cidade"].fillna("Boa Vista").replace("", "Boa Vista").unique().tolist()), key="minhas_cidade_mobile")
                 docs_filtro = st.selectbox("Documentos", ["Todos", "Com documentos não baixados", "Documentos baixados", "Sem documentos", "Com documentos"], key="minhas_docs_mobile")
 
                 df_filtrado = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)].copy()
@@ -1404,8 +1459,8 @@ if perfil == "captador":
                     df_filtrado = df_filtrado[df_filtrado["bairro"].fillna("").replace("", "Não informado").isin(bairro_filtro)]
                 if local_filtro:
                     df_filtrado = df_filtrado[df_filtrado["local_captacao"].fillna("").replace("", "Não informado").isin(local_filtro)]
-                if cidade_filtro and "unidade" in df_filtrado.columns:
-                    df_filtrado = df_filtrado[df_filtrado["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(cidade_filtro)]
+                if cidade_filtro and "cidade" in df_filtrado.columns:
+                    df_filtrado = df_filtrado[df_filtrado["cidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(cidade_filtro)]
                 if docs_filtro == "Com documentos não baixados":
                     df_filtrado = df_filtrado[df_filtrado["documentos_enviados"] > df_filtrado["documentos_baixados"]]
                 elif docs_filtro == "Documentos baixados":
@@ -1416,7 +1471,7 @@ if perfil == "captador":
                     df_filtrado = df_filtrado[df_filtrado["documentos_enviados"] > 0]
 
                 colunas = [
-                    "data_captacao", "nome_cliente", "telefone", "bairro", "local_captacao", "unidade",
+                    "data_captacao", "nome_cliente", "telefone", "cidade", "bairro", "local_captacao", "unidade",
                     "tipo_beneficio", "status_lead", "documentos_enviados", "documentos_baixados", "status_documentos"
                 ]
                 colunas = [c for c in colunas if c in df_filtrado.columns]
@@ -1644,6 +1699,7 @@ if pagina == "Novo Lead":
         col1, col2 = st.columns(2)
         with col1:
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_desktop")
+            cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_desktop")
             nome_cliente = st.text_input("Nome do cliente *")
             cpf = st.text_input("CPF *")
             telefone = st.text_input("Telefone *")
@@ -1667,7 +1723,7 @@ if pagina == "Novo Lead":
         cpf_limpo = limpar_cpf(cpf)
         duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
 
-        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not local_captacao:
+        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
             st.error("Preencha os campos obrigatórios marcados com *.")
         elif not cpf_valido_ou_vazio(cpf):
             st.error("CPF inválido. Use 11 números.")
@@ -1684,6 +1740,7 @@ if pagina == "Novo Lead":
                 "captador_id": usuario["id"],
                 "captador_nome": usuario["nome"],
                 "unidade": unidade_lead,
+                "cidade": cidade_lead,
                 "nome_cliente": normalizar_texto(nome_cliente),
                 "cpf": cpf_limpo,
                 "telefone": telefone.strip(),
@@ -1728,7 +1785,7 @@ elif pagina == "Minhas Captações":
             df = df[df["bairro"].isin(bairro_filtro)]
 
         colunas = [
-            "data_captacao", "nome_cliente", "telefone", "bairro", "local_captacao",
+            "data_captacao", "nome_cliente", "telefone", "cidade", "bairro", "local_captacao",
             "area_acao", "tipo_beneficio", "status_lead", "captador_nome", "observacao",
             "quem_atendeu", "motivo_perda"
         ]
@@ -1994,7 +2051,7 @@ elif pagina == "Painel Gestor":
     # 10 - Base completa
     st.markdown("<div class='v360-section-title'>10. Base Completa</div>", unsafe_allow_html=True)
     colunas_base = [
-        "data_captacao", "nome_cliente", "cpf", "telefone", "bairro", "local_captacao",
+        "data_captacao", "nome_cliente", "cpf", "telefone", "cidade", "bairro", "local_captacao",
         "area_acao", "tipo_beneficio", "status_lead", "captador_nome",
         "quem_atendeu", "motivo_perda", "observacao"
     ]
@@ -2307,7 +2364,7 @@ elif pagina == "Pendências":
             st.info("Nenhum lead disponível no seu escopo para abrir pendência.")
         else:
             df_select = df_leads_all.copy()
-            for col in ["nome_cliente", "cpf", "telefone", "bairro", "captador_nome", "status_lead", "local_captacao", "unidade"]:
+            for col in ["nome_cliente", "cpf", "telefone", "cidade", "bairro", "captador_nome", "status_lead", "local_captacao", "unidade"]:
                 if col not in df_select.columns:
                     df_select[col] = ""
                 df_select[col] = df_select[col].fillna("").astype(str)
@@ -2336,6 +2393,7 @@ elif pagina == "Pendências":
                 mask_texto = (
                     df_select["nome_cliente"].str.lower().str.contains(termo_norm, na=False) |
                     df_select["bairro"].str.lower().str.contains(termo_norm, na=False) |
+                    df_select["cidade"].str.lower().str.contains(termo_norm, na=False) |
                     df_select["local_captacao"].str.lower().str.contains(termo_norm, na=False) |
                     df_select["captador_nome"].str.lower().str.contains(termo_norm, na=False)
                 )
@@ -2396,6 +2454,7 @@ elif pagina == "Pendências":
                         "cpf": lead.get("cpf"),
                         "telefone": lead.get("telefone"),
                         "unidade": lead.get("unidade") or "Boa Vista",
+                        "cidade": lead.get("cidade") or lead.get("unidade") or "Boa Vista",
                         "bairro": lead.get("bairro"),
                         "tipo_pendencia": tipo_pend,
                         "descricao": descricao.strip(),
@@ -2645,6 +2704,7 @@ elif pagina == "Atualizar Lead":
     with col_a:
         st.write(f"**CPF:** {formatar_cpf(lead.get('cpf','') or '')}")
         st.write(f"**Telefone:** {formatar_telefone(lead.get('telefone','') or '')}")
+        st.write(f"**Cidade:** {lead.get('cidade','') or lead.get('unidade','')}")
         st.write(f"**Bairro:** {lead.get('bairro','')}")
         st.write(f"**Local:** {lead.get('local_captacao','')}")
     with col_b:
