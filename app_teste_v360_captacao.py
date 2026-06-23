@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-bairros-estado-cidade-fix"
+VERSAO_APP = "teste-v360-bairros-select-fix"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -899,14 +899,19 @@ def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
 
 def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
     estado = (estado or "").strip().upper()
-    cidade = normalizar_texto(cidade)
+    cidade_original = normalizar_texto(cidade)
+    cidade_busca = cidade_original.strip()
 
+    if not cidade_busca:
+        return []
+
+    # 1) Busca exata
     try:
         resp = (
             supabase.table(TABELA_BAIRROS)
             .select("nome,ativo")
             .eq("estado", estado)
-            .eq("cidade", cidade)
+            .eq("cidade", cidade_busca)
             .eq("ativo", True)
             .order("nome")
             .execute()
@@ -917,7 +922,25 @@ def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
     except Exception:
         pass
 
-    if cidade.strip().lower() == "boa vista":
+    # 2) Busca ignorando maiúsculas/minúsculas e pequenos espaços
+    try:
+        resp = (
+            supabase.table(TABELA_BAIRROS)
+            .select("nome,cidade,ativo")
+            .eq("estado", estado)
+            .ilike("cidade", cidade_busca)
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        bairros = [r.get("nome") for r in (resp.data or []) if r.get("nome")]
+        if bairros:
+            return bairros
+    except Exception:
+        pass
+
+    # 3) Fallback fixo para Boa Vista
+    if cidade_busca.strip().lower() == "boa vista":
         return BAIRROS_BOA_VISTA
 
     return []
@@ -996,6 +1019,7 @@ def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
     bairros = listar_bairros_por_cidade(estado, cidade)
 
     if bairros:
+        st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
         return st.selectbox("Bairro *", bairros, key=key)
 
     bairro_digitado = st.text_input(
