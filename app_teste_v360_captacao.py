@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-cidades-bairros"
+VERSAO_APP = "teste-v360-bairros-estado-cidade-fix"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -3141,9 +3141,19 @@ elif pagina == "Cadastros":
         with st.form("form_novo_bairro_cidade"):
             cb1, cb2, cb3 = st.columns(3)
             with cb1:
-                estado_bairro = st.selectbox("Estado", ["RR", "AM"], format_func=nome_estado_por_uf)
+                estado_bairro = st.selectbox(
+                    "Estado",
+                    ["AM", "RR"],
+                    format_func=nome_estado_por_uf,
+                    key="cad_bairro_estado",
+                )
             with cb2:
-                cidade_bairro = st.selectbox("Cidade", CIDADES_POR_UF.get(estado_bairro, ["Outro"]))
+                cidades_bairro_opts = CIDADES_POR_UF.get(estado_bairro, ["Outro"])
+                cidade_bairro = st.selectbox(
+                    "Cidade",
+                    cidades_bairro_opts,
+                    key=f"cad_bairro_cidade_{estado_bairro}",
+                )
             with cb3:
                 nome_bairro = st.text_input("Bairro", placeholder="Ex.: Centro")
             salvar_bairro = st.form_submit_button("Adicionar bairro")
@@ -3172,7 +3182,34 @@ elif pagina == "Cadastros":
             if bairros_df.empty:
                 st.info("Nenhum bairro cadastrado ainda.")
             else:
-                st.dataframe(bairros_df.rename(columns={"estado":"Estado", "cidade":"Cidade", "nome":"Bairro", "ativo":"Ativo"}), use_container_width=True, hide_index=True)
+                st.markdown("#### 🔎 Filtrar bairros cadastrados")
+                fc1, fc2 = st.columns(2)
+                with fc1:
+                    estados_lista = sorted(bairros_df["estado"].dropna().unique().tolist())
+                    estado_lista_filtro = st.selectbox(
+                        "Estado para visualizar",
+                        ["Todos"] + estados_lista,
+                        key="filtro_lista_bairros_estado",
+                    )
+                bairros_view = bairros_df.copy()
+                if estado_lista_filtro != "Todos":
+                    bairros_view = bairros_view[bairros_view["estado"] == estado_lista_filtro]
+                with fc2:
+                    cidades_lista = sorted(bairros_view["cidade"].dropna().unique().tolist())
+                    cidade_lista_filtro = st.selectbox(
+                        "Cidade para visualizar",
+                        ["Todas"] + cidades_lista,
+                        key="filtro_lista_bairros_cidade",
+                    )
+                if cidade_lista_filtro != "Todas":
+                    bairros_view = bairros_view[bairros_view["cidade"] == cidade_lista_filtro]
+
+                st.caption(f"{len(bairros_view)} bairro(s) encontrado(s).")
+                st.dataframe(
+                    bairros_view.rename(columns={"estado":"Estado", "cidade":"Cidade", "nome":"Bairro", "ativo":"Ativo"}),
+                    use_container_width=True,
+                    hide_index=True,
+                )
         except Exception as e:
             st.warning(f"Não foi possível listar bairros cadastrados: {e}")
 
