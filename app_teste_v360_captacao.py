@@ -18,7 +18,7 @@ from supabase import create_client, Client
 # =====================================================
 
 st.set_page_config(
-    page_title="V360 Captação",
+    page_title="V360 Captação - TESTE",
     page_icon="📍",
     layout="wide"
 )
@@ -34,9 +34,9 @@ TABELA_UNIDADES = "captacao_unidades_teste"
 TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades_teste"
 TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
-BUCKET_ARQUIVOS = "captacao-temporario"
+BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v15-bairro-por-cidade"
+VERSAO_APP = "HOMOLOGAÇÃO-TESTE-v360-captação"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -520,6 +520,28 @@ def header_desktop(usuario):
     )
 
 aplicar_css_base()
+
+
+def banner_homologacao():
+    st.markdown(
+        """
+        <div style="
+            background: linear-gradient(90deg, #B45309, #F59E0B);
+            color: white;
+            padding: 12px 18px;
+            border-radius: 14px;
+            margin: 8px 0 18px 0;
+            font-weight: 950;
+            text-align: center;
+            letter-spacing: .8px;
+            box-shadow: 0 8px 20px rgba(180,83,9,.18);
+        ">
+            ⚠️ AMBIENTE DE TESTES / HOMOLOGAÇÃO — DADOS SEPARADOS DA PRODUÇÃO
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 # -------------------------------
 # FUNÇÕES AUXILIARES
@@ -1325,6 +1347,7 @@ if "captador_pagina" not in st.session_state:
 if st.session_state.usuario is None:
     aplicar_css_mobile()
     header_mobile()
+    banner_homologacao()
     abrir_card_mobile("Acesso", "Entre para registrar captações")
     with st.form("form_login"):
         email = st.text_input("E-mail")
@@ -1352,6 +1375,7 @@ perfil = usuario.get("perfil")
 if perfil == "captador":
     aplicar_css_mobile()
     header_mobile()
+    banner_homologacao()
 
     opcoes_captador = ["➕ Novo Lead", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
     mapa_captador = {"➕ Novo Lead": "Novo Lead", "📋 Minhas": "Minhas Captações", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
@@ -1676,6 +1700,7 @@ if perfil == "captador":
 # -------------------------------
 aplicar_css_sidebar_desktop()
 header_desktop(usuario)
+banner_homologacao()
 
 st.sidebar.markdown(
     """
