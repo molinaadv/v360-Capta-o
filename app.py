@@ -30,11 +30,13 @@ TABELA_PENDENCIAS = "captacao_pendencias"
 TABELA_TIPOS_PENDENCIA = "captacao_tipos_pendencia"
 TABELA_UNIDADES = "captacao_unidades"
 TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades"
+TABELA_USUARIO_CIDADES = "captacao_usuario_cidades"
 TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
+TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "produção-v360-captação-foto-jpg-final"
+VERSAO_APP = "producao-v360-cidades-bairros"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -784,6 +786,129 @@ def nome_estado_por_uf(uf: str) -> str:
     return mapa.get((uf or "").strip().upper(), (uf or "").strip().upper() or "Roraima")
 
 
+
+def cidades_de_unidades(unidades: list[str]) -> list[str]:
+    """Retorna todas as cidades possíveis das unidades/estados informados."""
+    cidades = []
+    for unidade in unidades or []:
+        uf = estado_da_unidade(unidade)
+        for cidade in CIDADES_POR_UF.get(uf, ["Outro"]):
+            if cidade not in cidades:
+                cidades.append(cidade)
+    return cidades or ["Boa Vista"]
+
+
+def listar_cidades_usuario(usuario_id: str) -> list[str]:
+    if not usuario_id:
+        return []
+    try:
+        resp = (
+            supabase.table(TABELA_USUARIO_CIDADES)
+            .select("cidade,ativo")
+            .eq("usuario_id", usuario_id)
+            .eq("ativo", True)
+            .execute()
+        )
+        return [r.get("cidade") for r in (resp.data or []) if r.get("cidade")]
+    except Exception:
+        return []
+
+
+def vincular_usuario_cidades(usuario_id: str, cidades: list[str]):
+    if not usuario_id or not cidades:
+        return
+    for cidade in cidades:
+        cidade_limpa = normalizar_texto(cidade)
+        if not cidade_limpa:
+            continue
+        estado = estado_por_cidade(cidade_limpa)
+        try:
+            supabase.table(TABELA_USUARIO_CIDADES).insert({
+                "usuario_id": usuario_id,
+                "estado": estado,
+                "cidade": cidade_limpa,
+                "ativo": True,
+            }).execute()
+        except Exception:
+            pass
+
+
+def remover_cidades_usuario(usuario_id: str):
+    if not usuario_id:
+        return None
+    try:
+        return supabase.table(TABELA_USUARIO_CIDADES).delete().eq("usuario_id", usuario_id).execute()
+    except Exception:
+        return None
+
+
+def substituir_usuario_cidades(usuario_id: str, cidades: list[str]):
+    remover_cidades_usuario(usuario_id)
+    vincular_usuario_cidades(usuario_id, cidades)
+
+
+def estado_por_cidade(cidade: str) -> str:
+    cidade_norm = normalizar_texto(cidade).lower()
+    for uf, cidades in CIDADES_POR_UF.items():
+        if cidade_norm in [normalizar_texto(c).lower() for c in cidades]:
+            return uf
+    return "RR" if cidade_norm == "boa vista" else "AM"
+
+
+def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
+    uf = estado_da_unidade(unidade_nome)
+    todas = CIDADES_POR_UF.get(uf, ["Outro"])
+
+    if not usuario or usuario_eh_geral(usuario):
+        return todas
+
+    cidades_usuario = listar_cidades_usuario(str(usuario.get("id", "")))
+
+    # Fallback para não travar usuários antigos: se não houver cidades cadastradas,
+    # libera as cidades do estado/unidade atual.
+    if not cidades_usuario:
+        return todas
+
+    cidades_filtradas = [c for c in cidades_usuario if estado_por_cidade(c) == uf or c == "Outro"]
+    return cidades_filtradas or todas
+
+
+def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
+    estado = (estado or "").strip().upper()
+    cidade = normalizar_texto(cidade)
+
+    try:
+        resp = (
+            supabase.table(TABELA_BAIRROS)
+            .select("nome,ativo")
+            .eq("estado", estado)
+            .eq("cidade", cidade)
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        bairros = [r.get("nome") for r in (resp.data or []) if r.get("nome")]
+        if bairros:
+            return bairros
+    except Exception:
+        pass
+
+    if cidade.strip().lower() == "boa vista":
+        return BAIRROS_BOA_VISTA
+
+    return []
+
+
+def criar_bairro_cidade(estado: str, cidade: str, bairro: str):
+    dados = {
+        "estado": (estado or "").strip().upper(),
+        "cidade": normalizar_texto(cidade),
+        "nome": normalizar_texto(bairro),
+        "ativo": True,
+    }
+    return supabase.table(TABELA_BAIRROS).insert(dados).execute()
+
+
 def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
     unidades = unidades_permitidas_usuario(usuario)
     if len(unidades) <= 1:
@@ -825,7 +950,16 @@ def cidades_da_unidade(unidade_nome: str) -> list[str]:
 
 def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -> str:
     uf = estado_da_unidade(unidade_nome)
-    cidades = cidades_da_unidade(unidade_nome)
+    usuario_atual = st.session_state.get("usuario")
+    cidades = cidades_permitidas_usuario(usuario_atual, unidade_nome)
+
+    if len(cidades) <= 1:
+        cidade = cidades[0] if cidades else "Outro"
+        if cidade == "Outro":
+            return normalizar_texto(st.text_input(f"Cidade * - {nome_estado_por_uf(uf)}", key=key))
+        st.text_input(f"Cidade * - {nome_estado_por_uf(uf)}", value=cidade, disabled=True, key=f"{key}_cidade_disabled")
+        return cidade
+
     cidade = st.selectbox(f"Cidade * - {nome_estado_por_uf(uf)}", cidades, key=key)
     if cidade == "Outro":
         return normalizar_texto(st.text_input("Digite a cidade *", key=f"{key}_outro"))
@@ -833,16 +967,18 @@ def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -
 
 
 def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
-    cidade_norm = (cidade or "").strip().lower()
+    cidade = normalizar_texto(cidade)
+    estado = estado_por_cidade(cidade)
+    bairros = listar_bairros_por_cidade(estado, cidade)
 
-    if cidade_norm == "boa vista":
-        return st.selectbox("Bairro *", BAIRROS_BOA_VISTA, key=key)
+    if bairros:
+        return st.selectbox("Bairro *", bairros, key=key)
 
     bairro_digitado = st.text_input(
         "Bairro *",
         placeholder="Digite o bairro do cliente",
         key=key,
-        help="Para cidades do interior, o bairro é digitado manualmente.",
+        help="Esta cidade ainda não possui bairros cadastrados. Digite manualmente ou cadastre em Cadastros > Bairros por cidade.",
     )
     return normalizar_texto(bairro_digitado)
 
@@ -2873,7 +3009,7 @@ elif pagina == "Cadastros":
     st.title("⚙️ Cadastros")
     st.caption("Cadastre benefícios, locais de captação, tipos de arquivos e unidades sem precisar alterar o código.")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Tipos de Pendência", "Unidades"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Tipos de Pendência", "Unidades", "Bairros por cidade"])
     with tab1:
         st.subheader("Benefícios")
         with st.form("form_novo_beneficio"):
@@ -2973,6 +3109,49 @@ elif pagina == "Cadastros":
             cols_unidades = [c for c in ["nome", "cidade", "estado", "ativo"] if c in unidades_df.columns]
             st.dataframe(unidades_df[cols_unidades], use_container_width=True, hide_index=True)
 
+
+    with tab6:
+        st.subheader("Bairros por cidade")
+        st.caption("Cadastre bairros para que o captador selecione em vez de digitar manualmente.")
+        with st.form("form_novo_bairro_cidade"):
+            cb1, cb2, cb3 = st.columns(3)
+            with cb1:
+                estado_bairro = st.selectbox("Estado", ["RR", "AM"], format_func=nome_estado_por_uf)
+            with cb2:
+                cidade_bairro = st.selectbox("Cidade", CIDADES_POR_UF.get(estado_bairro, ["Outro"]))
+            with cb3:
+                nome_bairro = st.text_input("Bairro", placeholder="Ex.: Centro")
+            salvar_bairro = st.form_submit_button("Adicionar bairro")
+        if salvar_bairro:
+            if not nome_bairro.strip():
+                st.error("Informe o nome do bairro.")
+            else:
+                try:
+                    criar_bairro_cidade(estado_bairro, cidade_bairro, nome_bairro)
+                    st.success("Bairro cadastrado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao cadastrar bairro: {e}")
+
+        try:
+            bairros_df = pd.DataFrame(
+                supabase.table(TABELA_BAIRROS)
+                .select("estado,cidade,nome,ativo")
+                .eq("ativo", True)
+                .order("estado")
+                .order("cidade")
+                .order("nome")
+                .execute()
+                .data or []
+            )
+            if bairros_df.empty:
+                st.info("Nenhum bairro cadastrado ainda.")
+            else:
+                st.dataframe(bairros_df.rename(columns={"estado":"Estado", "cidade":"Cidade", "nome":"Bairro", "ativo":"Ativo"}), use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.warning(f"Não foi possível listar bairros cadastrados: {e}")
+
+
 # -------------------------------
 # USUÁRIOS
 # -------------------------------
@@ -2988,6 +3167,7 @@ elif pagina == "Usuários":
     PERFIS_USUARIO = perfis_que_usuario_pode_criar(usuario)
     unidades_todas = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
     unidades_opts = unidades_todas if perfil_admin == "gestor_geral" else [u for u in unidades_permitidas_usuario(usuario) if u in unidades_todas]
+    cidades_opts = cidades_de_unidades(unidades_opts)
 
     if not unidades_opts and perfil_admin != "gestor_geral":
         st.warning("Seu usuário não possui unidades liberadas. Peça para um gestor geral ajustar seu cadastro.")
@@ -3028,6 +3208,15 @@ elif pagina == "Usuários":
                         help="Gestor geral vê todas as unidades automaticamente.",
                         key="criar_unidades_geral",
                     )
+                    cidades_usuario = cidades_de_unidades(unidades_todas)
+                    st.multiselect(
+                        "Cidades liberadas",
+                        cidades_usuario,
+                        default=cidades_usuario,
+                        disabled=True,
+                        help="Gestor geral vê todas as cidades automaticamente.",
+                        key="criar_cidades_geral",
+                    )
                 else:
                     unidades_usuario = st.multiselect(
                         "Unidades liberadas",
@@ -3035,6 +3224,14 @@ elif pagina == "Usuários":
                         default=unidades_opts[:1] if unidades_opts else [],
                         key="criar_unidades",
                         help="Captador vê os próprios leads. Supervisor/regional veem as unidades liberadas."
+                    )
+                    cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
+                    cidades_usuario = st.multiselect(
+                        "Cidades liberadas",
+                        cidades_disponiveis_criar,
+                        default=cidades_disponiveis_criar[:1] if cidades_disponiveis_criar else [],
+                        key="criar_cidades",
+                        help="Você pode liberar uma ou mais cidades para este usuário."
                     )
             criar = st.form_submit_button("Criar Usuário")
 
@@ -3045,6 +3242,8 @@ elif pagina == "Usuários":
                 st.error("Você não tem permissão para criar usuário com esse perfil.")
             elif perfil_novo != "gestor_geral" and not unidades_usuario:
                 st.error("Selecione ao menos uma unidade para o usuário.")
+            elif perfil_novo != "gestor_geral" and not cidades_usuario:
+                st.error("Selecione ao menos uma cidade para o usuário.")
             else:
                 try:
                     resp_user = supabase.table(TABELA_USUARIOS).insert({
@@ -3058,6 +3257,7 @@ elif pagina == "Usuários":
                     novo_usuario_id = (resp_user.data or [{}])[0].get("id") if hasattr(resp_user, "data") else None
                     if novo_usuario_id:
                         vincular_usuario_unidades(novo_usuario_id, unidades_usuario)
+                        vincular_usuario_cidades(novo_usuario_id, cidades_usuario)
                     st.session_state["mensagem_usuario_sucesso"] = f"Usuário {normalizar_texto(nome)} criado com sucesso."
                     st.rerun()
                 except Exception as e:
@@ -3097,6 +3297,7 @@ elif pagina == "Usuários":
                 unidades_atual = listar_unidades_usuario(usuario_id)
                 if not unidades_atual and usuario_edit.get("unidade_padrao"):
                     unidades_atual = [usuario_edit.get("unidade_padrao")]
+                cidades_atual = listar_cidades_usuario(usuario_id)
 
                 with st.form("form_usuario_editar"):
                     col1, col2 = st.columns(2)
@@ -3131,12 +3332,29 @@ elif pagina == "Usuários":
                                 help="Gestor geral vê todas as unidades automaticamente.",
                                 key="editar_unidades_geral",
                             )
+                            cidades_edit = cidades_de_unidades(unidades_todas)
+                            st.multiselect(
+                                "Cidades liberadas",
+                                cidades_edit,
+                                default=cidades_edit,
+                                disabled=True,
+                                help="Gestor geral vê todas as cidades automaticamente.",
+                                key="editar_cidades_geral",
+                            )
                         else:
                             unidades_edit = st.multiselect(
                                 "Unidades liberadas",
                                 unidades_opts,
                                 default=unidades_validas or (unidades_opts[:1] if unidades_opts else []),
                                 help="Selecione apenas as unidades dentro do seu escopo."
+                            )
+                            cidades_disponiveis_edit = cidades_de_unidades(unidades_edit or unidades_opts)
+                            cidades_validas = [c for c in cidades_atual if c in cidades_disponiveis_edit]
+                            cidades_edit = st.multiselect(
+                                "Cidades liberadas",
+                                cidades_disponiveis_edit,
+                                default=cidades_validas or (cidades_disponiveis_edit[:1] if cidades_disponiveis_edit else []),
+                                help="Selecione uma ou mais cidades dentro das unidades liberadas."
                             )
                     salvar_edit = st.form_submit_button("💾 Salvar alterações")
 
@@ -3149,6 +3367,8 @@ elif pagina == "Usuários":
                         st.error("Você não tem permissão para atribuir esse perfil.")
                     elif perfil_edit != "gestor_geral" and not unidades_edit:
                         st.error("Selecione ao menos uma unidade para o usuário.")
+                    elif perfil_edit != "gestor_geral" and not cidades_edit:
+                        st.error("Selecione ao menos uma cidade para o usuário.")
                     else:
                         dados_update = {
                             "nome": normalizar_texto(nome_edit),
@@ -3162,6 +3382,7 @@ elif pagina == "Usuários":
                         try:
                             atualizar_usuario(usuario_id, dados_update)
                             substituir_usuario_unidades(usuario_id, unidades_edit)
+                            substituir_usuario_cidades(usuario_id, cidades_edit)
                             st.session_state["mensagem_usuario_sucesso"] = f"Usuário {normalizar_texto(nome_edit)} atualizado com sucesso."
                             st.rerun()
                         except Exception as e:
@@ -3184,6 +3405,15 @@ elif pagina == "Usuários":
 
                 dfu["unidades_liberadas"] = dfu.apply(texto_unidades_liberadas, axis=1)
 
-            cols = ["nome", "email", "perfil", "ativo", "unidade_padrao", "unidades_liberadas"]
+                def texto_cidades_liberadas(row):
+                    perfil_row = row.get("perfil", "")
+                    if perfil_row in ["gestor_geral", "gestor"]:
+                        return "Todas"
+                    cidades_row = listar_cidades_usuario(str(row.get("id", "")))
+                    return ", ".join(cidades_row) if cidades_row else "Todas da unidade"
+
+                dfu["cidades_liberadas"] = dfu.apply(texto_cidades_liberadas, axis=1)
+
+            cols = ["nome", "email", "perfil", "ativo", "unidade_padrao", "unidades_liberadas", "cidades_liberadas"]
             cols = [c for c in cols if c in dfu.columns]
             st.dataframe(dfu[cols], use_container_width=True, hide_index=True)
