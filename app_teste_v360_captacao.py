@@ -36,7 +36,7 @@ TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "HOMOLOGAÇÃO-TESTE-v360-captação"
+VERSAO_APP = "HOMOLOGAÇÃO-TESTE-v360-captação-foto-jpeg"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1431,7 +1431,7 @@ if perfil == "captador":
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_mobile")
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
-            foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="No celular, toque em Upload e escolha Câmera.")
+            foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
             enviar = st.form_submit_button("💾 SALVAR LEAD")
             st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
         fechar_card_mobile()
@@ -1609,7 +1609,7 @@ if perfil == "captador":
                     obs_p = st.text_area("Observação", placeholder="Ex.: Cliente entregou laudo atualizado")
                     tipo_doc_p = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_pend_captador")
                     arquivos_p = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_pend_captador")
-                    foto_p_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_pend_captador", help="No celular, toque em Upload e escolha Câmera.")
+                    foto_p_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_pend_captador", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
                     salvar_p = st.form_submit_button("📎 ENVIAR / ATUALIZAR")
                 if salvar_p:
                     try:
@@ -1700,7 +1700,7 @@ if perfil == "captador":
                     with st.form("form_add_docs_captador", clear_on_submit=True):
                         tipo_documento_extra = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_extra_mobile")
                         arquivos_extra = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
-                        foto_extra_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_extra_mobile", help="No celular, toque em Upload e escolha Câmera.")
+                        foto_extra_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_extra_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
                         enviar_docs = st.form_submit_button("📎 ENVIAR DOCUMENTOS")
 
                     if enviar_docs:
@@ -1812,7 +1812,7 @@ if pagina == "Novo Lead":
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_desktop")
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_desktop")
-            foto_camera_desktop_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_desktop", help="No celular, toque em Upload e escolha Câmera.")
+            foto_camera_desktop_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_desktop", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
 
         enviar = st.form_submit_button("Salvar Lead")
 
