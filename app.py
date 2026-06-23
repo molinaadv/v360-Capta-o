@@ -34,7 +34,7 @@ TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v15-bairro-por-cidade"
+VERSAO_APP = "produção-v360-captação-foto-jpg-final"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1049,6 +1049,24 @@ def caminho_arquivo_storage(lead_id: str, nome_arquivo: str) -> str:
     return f"{lead_id}/{uuid.uuid4().hex}_{nome_limpo}"
 
 
+
+def lista_arquivos_com_foto(arquivos_upload, foto_camera=None, nome_base: str = "foto_documento.jpg"):
+    """
+    Junta arquivos do upload múltiplo com uma foto/arquivo único.
+    O campo de foto sempre é salvo como .jpg, independentemente da extensão original.
+    """
+    arquivos = list(arquivos_upload or [])
+    if foto_camera:
+        nome_jpg = nome_base
+        if not nome_jpg.lower().endswith(".jpg"):
+            nome_jpg = nome_jpg.rsplit(".", 1)[0] + ".jpg"
+        try:
+            foto_camera.name = nome_jpg
+        except Exception:
+            pass
+        arquivos.append(foto_camera)
+    return arquivos
+
 def salvar_metadado_arquivo(lead_id: str, arquivo, tipo_documento: str, usuario: dict, caminho: str):
     dados = {
         "lead_id": lead_id,
@@ -1388,7 +1406,8 @@ if perfil == "captador":
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_mobile")
-            arquivos_upload = st.file_uploader("Adicionar arquivos/documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
+            arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
+            foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
             enviar = st.form_submit_button("💾 SALVAR LEAD")
             st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
         fechar_card_mobile()
@@ -1429,9 +1448,14 @@ if perfil == "captador":
                     novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                     if novo_id:
                         salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
-                        if arquivos_upload:
+                        arquivos_para_enviar = lista_arquivos_com_foto(
+                            arquivos_upload,
+                            foto_camera_upload,
+                            f"foto_{limpar_cpf(cpf) or novo_id}.jpg",
+                        )
+                        if arquivos_para_enviar:
                             enviados = 0
-                            for arquivo in arquivos_upload:
+                            for arquivo in arquivos_para_enviar:
                                 enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
                                 enviados += 1
                             salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
@@ -1560,14 +1584,20 @@ if perfil == "captador":
                     novo_status_p = st.selectbox("Atualizar status da pendência", STATUS_PENDENCIA, index=STATUS_PENDENCIA.index(pend.get("status", "Aberta")) if pend.get("status", "Aberta") in STATUS_PENDENCIA else 0)
                     obs_p = st.text_area("Observação", placeholder="Ex.: Cliente entregou laudo atualizado")
                     tipo_doc_p = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_pend_captador")
-                    arquivos_p = st.file_uploader("Adicionar documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_pend_captador")
+                    arquivos_p = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_pend_captador")
+                    foto_p_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_pend_captador", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
                     salvar_p = st.form_submit_button("📎 ENVIAR / ATUALIZAR")
                 if salvar_p:
                     try:
                         enviados = 0
                         lead_id_p = str(pend.get("lead_id", ""))
-                        if arquivos_p and lead_id_p:
-                            for arquivo in arquivos_p:
+                        arquivos_p_enviar = lista_arquivos_com_foto(
+                            arquivos_p,
+                            foto_p_upload,
+                            f"foto_pendencia_{lead_id_p}.jpg",
+                        )
+                        if arquivos_p_enviar and lead_id_p:
+                            for arquivo in arquivos_p_enviar:
                                 enviar_arquivo_temporario(lead_id_p, arquivo, tipo_doc_p, usuario)
                                 enviados += 1
                             salvar_historico(lead_id_p, usuario["nome"], novo_status_p, f"{enviados} arquivo(s) enviado(s) para pendência: {pend.get('tipo_pendencia','')}.", "Pendência documental")
@@ -1645,16 +1675,22 @@ if perfil == "captador":
 
                     with st.form("form_add_docs_captador", clear_on_submit=True):
                         tipo_documento_extra = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_extra_mobile")
-                        arquivos_extra = st.file_uploader("Adicionar novos documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
+                        arquivos_extra = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
+                        foto_extra_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_extra_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
                         enviar_docs = st.form_submit_button("📎 ENVIAR DOCUMENTOS")
 
                     if enviar_docs:
-                        if not arquivos_extra:
-                            st.error("Selecione pelo menos um arquivo.")
+                        arquivos_extra_enviar = lista_arquivos_com_foto(
+                            arquivos_extra,
+                            foto_extra_upload,
+                            f"foto_extra_{str(lead['id'])}.jpg",
+                        )
+                        if not arquivos_extra_enviar:
+                            st.error("Selecione pelo menos um arquivo ou uma foto.")
                         else:
                             try:
                                 enviados = 0
-                                for arquivo in arquivos_extra:
+                                for arquivo in arquivos_extra_enviar:
                                     enviar_arquivo_temporario(str(lead["id"]), arquivo, tipo_documento_extra, usuario)
                                     enviados += 1
                                 salvar_historico(str(lead["id"]), usuario["nome"], lead.get("status_lead", "Novo"), f"{enviados} novo(s) arquivo(s) anexado(s) pelo captador.", "Arquivos anexados")
@@ -1750,7 +1786,8 @@ if pagina == "Novo Lead":
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_desktop")
-            arquivos_upload = st.file_uploader("Adicionar arquivos/documentos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_desktop")
+            arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_desktop")
+            foto_camera_desktop_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_desktop", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
 
         enviar = st.form_submit_button("Salvar Lead")
 
@@ -1791,6 +1828,17 @@ if pagina == "Novo Lead":
                 novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                 if novo_id:
                     salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
+                    arquivos_para_enviar = lista_arquivos_com_foto(
+                        arquivos_upload,
+                        foto_camera_desktop_upload,
+                        f"foto_{limpar_cpf(cpf) or novo_id}.jpg",
+                    )
+                    if arquivos_para_enviar:
+                        enviados = 0
+                        for arquivo in arquivos_para_enviar:
+                            enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
+                            enviados += 1
+                        salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
                 st.success("Lead salvo com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao salvar lead: {e}")
