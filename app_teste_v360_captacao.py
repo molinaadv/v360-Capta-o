@@ -34,7 +34,7 @@ TABELA_UNIDADES = "captacao_unidades_teste"
 TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades_teste"
 TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
-BUCKET_ARQUIVOS = "captacao-temporario"
+BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
 VERSAO_APP = "HOMOLOGAÇÃO-TESTE-v360-captação"
 
