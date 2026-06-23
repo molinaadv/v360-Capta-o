@@ -34,7 +34,7 @@ TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "executivo-v360-captação-v14-cidades-por-estado"
+VERSAO_APP = "executivo-v360-captação-v15-bairro-por-cidade"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -130,7 +130,7 @@ CIDADES_POR_UF = {
         "Urucará", "Urucurituba", "Outro",
     ],
     "RR": [
-        "Alto Alegre", "Amajari", "Boa Vista", "Bonfim", "Cantá", "Caracaraí",
+        "Boa Vista", "Alto Alegre", "Amajari", "Bonfim", "Cantá", "Caracaraí",
         "Caroebe", "Iracema", "Mucajaí", "Normandia", "Pacaraima",
         "Rorainópolis", "São João da Baliza", "São Luiz", "Uiramutã", "Outro",
     ],
@@ -832,6 +832,21 @@ def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -
     return cidade
 
 
+def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
+    cidade_norm = (cidade or "").strip().lower()
+
+    if cidade_norm == "boa vista":
+        return st.selectbox("Bairro *", BAIRROS_BOA_VISTA, key=key)
+
+    bairro_digitado = st.text_input(
+        "Bairro *",
+        placeholder="Digite o bairro do cliente",
+        key=key,
+        help="Para cidades do interior, o bairro é digitado manualmente.",
+    )
+    return normalizar_texto(bairro_digitado)
+
+
 def vincular_usuario_unidades(usuario_id: str, unidades: list[str]):
     if not usuario_id or not unidades:
         return
@@ -1362,7 +1377,7 @@ if perfil == "captador":
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
             cpf = st.text_input("CPF *", placeholder="000.000.000-00")
             telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
-            bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
+            bairro = selecionar_bairro_por_cidade(cidade_lead, key="bairro_lead_mobile")
             locais_opcoes = listar_locais_captacao()
             if locais_opcoes:
                 local_sel = st.selectbox("Local da captação *", ["Outro / digitar"] + locais_opcoes)
@@ -1723,7 +1738,7 @@ if pagina == "Novo Lead":
             nome_cliente = st.text_input("Nome do cliente *")
             cpf = st.text_input("CPF *")
             telefone = st.text_input("Telefone *")
-            bairro = st.selectbox("Bairro *", BAIRROS_BOA_VISTA)
+            bairro = selecionar_bairro_por_cidade(cidade_lead, key="bairro_lead_desktop")
         with col2:
             locais_opcoes = listar_locais_captacao()
             if locais_opcoes:
