@@ -25,7 +25,7 @@ st.set_page_config(
 
 TABELA_USUARIOS = "captacao_usuarios_teste"
 TABELA_LEADS = "captacao_leads_teste"
-TABELA_HISTORICO = "captacao_lead_historico"
+TABELA_HISTORICO = "captacao_lead_historico_teste"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
 TABELA_PENDENCIAS = "captacao_pendencias_teste"
