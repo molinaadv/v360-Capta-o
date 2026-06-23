@@ -36,7 +36,7 @@ TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "HOMOLOGAÇÃO-TESTE-v360-captação-foto-jpeg"
+VERSAO_APP = "homologacao-v360-captação-foto-jpg-final"
 
 # -------------------------------
 # CONEXÃO SUPABASE
