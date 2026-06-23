@@ -776,25 +776,45 @@ def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
     return df[df["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(permitidas)]
 
 
+def nome_estado_por_uf(uf: str) -> str:
+    mapa = {
+        "AM": "Amazonas",
+        "RR": "Roraima",
+    }
+    return mapa.get((uf or "").strip().upper(), (uf or "").strip().upper() or "Roraima")
+
+
 def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
     unidades = unidades_permitidas_usuario(usuario)
     if len(unidades) <= 1:
         unidade = unidades[0] if unidades else "Boa Vista"
-        st.text_input("Unidade", value=unidade, disabled=True, key=f"{key}_disabled")
+        uf = estado_da_unidade(unidade)
+        st.text_input("Estado *", value=nome_estado_por_uf(uf), disabled=True, key=f"{key}_estado_disabled")
         return unidade
-    return st.selectbox("Unidade *", unidades, key=key)
+
+    unidade = st.selectbox("Unidade *", unidades, key=key)
+    uf = estado_da_unidade(unidade)
+    st.text_input("Estado *", value=nome_estado_por_uf(uf), disabled=True, key=f"{key}_estado_info")
+    return unidade
 
 
 def estado_da_unidade(unidade_nome: str) -> str:
     unidade_nome_norm = (unidade_nome or "").strip().lower()
+
+    # Regras fixas para evitar erro caso alguma unidade esteja cadastrada com UF incorreta no banco.
+    if unidade_nome_norm in ["boa vista", "roraima", "rr"]:
+        return "RR"
+    if unidade_nome_norm in ["amazonas", "manaus", "am"] or "amazonas" in unidade_nome_norm:
+        return "AM"
+
     try:
         for u in listar_unidades(True):
             if str(u.get("nome", "")).strip().lower() == unidade_nome_norm:
-                return str(u.get("estado", "")).strip().upper() or "RR"
+                estado = str(u.get("estado", "")).strip().upper()
+                if estado in CIDADES_POR_UF:
+                    return estado
     except Exception:
         pass
-    if "amazonas" in unidade_nome_norm or unidade_nome_norm in ["manaus", "am"]:
-        return "AM"
     return "RR"
 
 
@@ -806,7 +826,7 @@ def cidades_da_unidade(unidade_nome: str) -> list[str]:
 def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -> str:
     uf = estado_da_unidade(unidade_nome)
     cidades = cidades_da_unidade(unidade_nome)
-    cidade = st.selectbox(f"Cidade * ({uf})", cidades, key=key)
+    cidade = st.selectbox(f"Cidade * - {nome_estado_por_uf(uf)}", cidades, key=key)
     if cidade == "Outro":
         return normalizar_texto(st.text_input("Digite a cidade *", key=f"{key}_outro"))
     return cidade
