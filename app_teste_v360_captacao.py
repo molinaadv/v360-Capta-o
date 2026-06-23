@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-bairros-select-fix"
+VERSAO_APP = "teste-v360-bairro-select-obrigatorio"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -898,49 +898,52 @@ def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
 
 
 def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
+    """
+    Busca bairros cadastrados para a cidade.
+    Primeiro tenta estado+cidade; se não encontrar, tenta apenas cidade.
+    Isso evita falha quando o estado vem diferente do cadastro.
+    """
     estado = (estado or "").strip().upper()
-    cidade_original = normalizar_texto(cidade)
-    cidade_busca = cidade_original.strip()
+    cidade = normalizar_texto(cidade).strip()
 
-    if not cidade_busca:
+    if not cidade:
         return []
 
-    # 1) Busca exata
+    # 1) Busca principal: estado + cidade
     try:
         resp = (
             supabase.table(TABELA_BAIRROS)
-            .select("nome,ativo")
+            .select("nome")
             .eq("estado", estado)
-            .eq("cidade", cidade_busca)
+            .eq("cidade", cidade)
             .eq("ativo", True)
             .order("nome")
             .execute()
         )
-        bairros = [r.get("nome") for r in (resp.data or []) if r.get("nome")]
+        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
         if bairros:
             return bairros
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Não foi possível consultar bairros por estado/cidade: {e}")
 
-    # 2) Busca ignorando maiúsculas/minúsculas e pequenos espaços
+    # 2) Busca de segurança: apenas cidade
     try:
         resp = (
             supabase.table(TABELA_BAIRROS)
-            .select("nome,cidade,ativo")
-            .eq("estado", estado)
-            .ilike("cidade", cidade_busca)
+            .select("nome")
+            .eq("cidade", cidade)
             .eq("ativo", True)
             .order("nome")
             .execute()
         )
-        bairros = [r.get("nome") for r in (resp.data or []) if r.get("nome")]
+        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
         if bairros:
             return bairros
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Não foi possível consultar bairros por cidade: {e}")
 
-    # 3) Fallback fixo para Boa Vista
-    if cidade_busca.strip().lower() == "boa vista":
+    # 3) Fallback antigo para Boa Vista
+    if cidade.lower() == "boa vista":
         return BAIRROS_BOA_VISTA
 
     return []
@@ -1020,12 +1023,13 @@ def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
 
     if bairros:
         st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
-        return st.selectbox("Bairro *", bairros, key=key)
+        bairro_escolhido = st.selectbox("Bairro *", bairros, key=f"{key}_select")
+        return bairro_escolhido
 
     bairro_digitado = st.text_input(
         "Bairro *",
         placeholder="Digite o bairro do cliente",
-        key=key,
+        key=f"{key}_manual",
         help="Esta cidade ainda não possui bairros cadastrados. Digite manualmente ou cadastre em Cadastros > Bairros por cidade.",
     )
     return normalizar_texto(bairro_digitado)
@@ -3172,10 +3176,9 @@ elif pagina == "Cadastros":
                     key="cad_bairro_estado",
                 )
             with cb2:
-                cidades_bairro_opts = CIDADES_POR_UF.get(estado_bairro, ["Outro"])
                 cidade_bairro = st.selectbox(
                     "Cidade",
-                    cidades_bairro_opts,
+                    CIDADES_POR_UF.get(estado_bairro, ["Outro"]),
                     key=f"cad_bairro_cidade_{estado_bairro}",
                 )
             with cb3:
@@ -3206,34 +3209,7 @@ elif pagina == "Cadastros":
             if bairros_df.empty:
                 st.info("Nenhum bairro cadastrado ainda.")
             else:
-                st.markdown("#### 🔎 Filtrar bairros cadastrados")
-                fc1, fc2 = st.columns(2)
-                with fc1:
-                    estados_lista = sorted(bairros_df["estado"].dropna().unique().tolist())
-                    estado_lista_filtro = st.selectbox(
-                        "Estado para visualizar",
-                        ["Todos"] + estados_lista,
-                        key="filtro_lista_bairros_estado",
-                    )
-                bairros_view = bairros_df.copy()
-                if estado_lista_filtro != "Todos":
-                    bairros_view = bairros_view[bairros_view["estado"] == estado_lista_filtro]
-                with fc2:
-                    cidades_lista = sorted(bairros_view["cidade"].dropna().unique().tolist())
-                    cidade_lista_filtro = st.selectbox(
-                        "Cidade para visualizar",
-                        ["Todas"] + cidades_lista,
-                        key="filtro_lista_bairros_cidade",
-                    )
-                if cidade_lista_filtro != "Todas":
-                    bairros_view = bairros_view[bairros_view["cidade"] == cidade_lista_filtro]
-
-                st.caption(f"{len(bairros_view)} bairro(s) encontrado(s).")
-                st.dataframe(
-                    bairros_view.rename(columns={"estado":"Estado", "cidade":"Cidade", "nome":"Bairro", "ativo":"Ativo"}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
+                st.dataframe(bairros_df.rename(columns={"estado":"Estado", "cidade":"Cidade", "nome":"Bairro", "ativo":"Ativo"}), use_container_width=True, hide_index=True)
         except Exception as e:
             st.warning(f"Não foi possível listar bairros cadastrados: {e}")
 
