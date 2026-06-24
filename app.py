@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cidades-bairros"
+VERSAO_APP = "producao-v360-perfil-pendencia"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -113,6 +113,78 @@ BAIRROS_BOA_VISTA = [
     "União",
     "Outro",
 ]
+
+
+BAIRROS_FIXOS_POR_CIDADE = {
+    "manacapuru": [
+        "Aparecida",
+        "Área Rural de Manacapuru",
+        "Biribiri",
+        "Centro",
+        "Correnteza",
+        "Liberdade",
+        "Morada do Sol",
+        "Nova Manacá",
+        "São Francisco",
+        "São José",
+        "Terra Preta",
+        "União",
+        "Vale Verde",
+    ],
+    "presidente figueiredo": [
+        "Aida Mendonça",
+        "Centro",
+        "Galo da Serra",
+        "Galo da Serra II",
+        "Honório Roldão",
+        "José Dutra",
+        "Morada do Sol",
+        "Orquídeas",
+        "Sol Nascente",
+        "Tancredo Neves",
+        "Vale das Nascentes",
+    ],
+    "maués": [
+        "Centro",
+        "Do Éden",
+        "Donga Michiles",
+        "Maresia",
+        "Mário Fonseca",
+        "Novo Bairro",
+        "Ramalho Júnior",
+        "Santa Luzia",
+        "Santa Tereza",
+    ],
+    "parintins": [
+        "Castanheira",
+        "Centro",
+        "Distrito Industrial",
+        "Djard Vieira",
+        "Emílio Moreira",
+        "Francesa",
+        "Itaúna",
+        "Itaúna II",
+        "Jacareacanga",
+        "João Novo",
+        "Lady Laura",
+        "Macurany",
+        "Nossa Senhora de Nazaré",
+        "Palmares",
+        "Pascoal Allággio",
+        "Paulo Corrêa",
+        "Raimundo Muniz",
+        "Santa Clara",
+        "Santa Rita",
+        "Santoca",
+        "São Benedito",
+        "São José",
+        "São Vicente de Paula",
+        "Teixeirão",
+        "União",
+        "Val Paraíso",
+        "Vitória Régia",
+    ],
+}
 
 
 CIDADES_POR_UF = {
@@ -874,26 +946,52 @@ def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
 
 
 def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
+    """
+    Busca bairros no Supabase. Se o Supabase não retornar, usa lista fixa local
+    para as cidades já cadastradas, evitando cair no campo manual.
+    """
     estado = (estado or "").strip().upper()
-    cidade = normalizar_texto(cidade)
+    cidade = normalizar_texto(cidade).strip()
+    cidade_key = cidade.lower()
+
+    if not cidade:
+        return []
 
     try:
         resp = (
             supabase.table(TABELA_BAIRROS)
-            .select("nome,ativo")
+            .select("nome")
             .eq("estado", estado)
             .eq("cidade", cidade)
             .eq("ativo", True)
             .order("nome")
             .execute()
         )
-        bairros = [r.get("nome") for r in (resp.data or []) if r.get("nome")]
+        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
         if bairros:
             return bairros
     except Exception:
         pass
 
-    if cidade.strip().lower() == "boa vista":
+    try:
+        resp = (
+            supabase.table(TABELA_BAIRROS)
+            .select("nome")
+            .eq("cidade", cidade)
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
+        if bairros:
+            return bairros
+    except Exception:
+        pass
+
+    if cidade_key in BAIRROS_FIXOS_POR_CIDADE:
+        return BAIRROS_FIXOS_POR_CIDADE[cidade_key]
+
+    if cidade_key == "boa vista":
         return BAIRROS_BOA_VISTA
 
     return []
@@ -972,12 +1070,13 @@ def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
     bairros = listar_bairros_por_cidade(estado, cidade)
 
     if bairros:
-        return st.selectbox("Bairro *", bairros, key=key)
+        st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
+        return st.selectbox("Bairro *", bairros, key=f"{key}_select")
 
     bairro_digitado = st.text_input(
         "Bairro *",
         placeholder="Digite o bairro do cliente",
-        key=key,
+        key=f"{key}_manual",
         help="Esta cidade ainda não possui bairros cadastrados. Digite manualmente ou cadastre em Cadastros > Bairros por cidade.",
     )
     return normalizar_texto(bairro_digitado)
@@ -1401,6 +1500,10 @@ def pode_ver_todos(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade"]
 
 
+def pode_acessar_pendencias(usuario: dict) -> bool:
+    return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade", "pendencia"]
+
+
 def pode_gerenciar_usuarios(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor_geral", "gestor_regional"]
 
@@ -1411,6 +1514,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
     if perfil == "gestor_geral":
         return [
             "captador",
+            "pendencia",
             "supervisor",
             "gestor_unidade",
             "gestor_regional",
@@ -1420,6 +1524,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
     if perfil == "gestor_regional":
         return [
             "captador",
+            "pendencia",
             "supervisor",
             "gestor_unidade",
         ]
@@ -1871,20 +1976,26 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-opcoes_base = {
-    "➕ Novo Lead": "Novo Lead",
-    "📋 Minhas Captações": "Minhas Captações",
-}
-if pode_ver_todos(usuario):
-    opcoes_base.update({
-        "📊 Dashboard Executivo": "Painel Gestor",
-        "💡 Insights V360": "Insights V360",
-        "✏️ Atualizar Lead": "Atualizar Lead",
+if usuario.get("perfil") == "pendencia":
+    opcoes_base = {
         "📌 Pendências": "Pendências",
-        "⚙️ Cadastros": "Cadastros",
-    })
-    if pode_gerenciar_usuarios(usuario):
-        opcoes_base.update({"👥 Usuários": "Usuários"})
+    }
+else:
+    opcoes_base = {
+        "➕ Novo Lead": "Novo Lead",
+        "📋 Minhas Captações": "Minhas Captações",
+    }
+
+    if pode_ver_todos(usuario):
+        opcoes_base.update({
+            "📊 Dashboard Executivo": "Painel Gestor",
+            "💡 Insights V360": "Insights V360",
+            "✏️ Atualizar Lead": "Atualizar Lead",
+            "📌 Pendências": "Pendências",
+            "⚙️ Cadastros": "Cadastros",
+        })
+        if pode_gerenciar_usuarios(usuario):
+            opcoes_base.update({"👥 Usuários": "Usuários"})
 
 pagina_label = st.sidebar.radio("", list(opcoes_base.keys()), label_visibility="collapsed")
 pagina = opcoes_base[pagina_label]
@@ -3116,9 +3227,18 @@ elif pagina == "Cadastros":
         with st.form("form_novo_bairro_cidade"):
             cb1, cb2, cb3 = st.columns(3)
             with cb1:
-                estado_bairro = st.selectbox("Estado", ["RR", "AM"], format_func=nome_estado_por_uf)
+                estado_bairro = st.selectbox(
+                    "Estado",
+                    ["AM", "RR"],
+                    format_func=nome_estado_por_uf,
+                    key="cad_bairro_estado",
+                )
             with cb2:
-                cidade_bairro = st.selectbox("Cidade", CIDADES_POR_UF.get(estado_bairro, ["Outro"]))
+                cidade_bairro = st.selectbox(
+                    "Cidade",
+                    CIDADES_POR_UF.get(estado_bairro, ["Outro"]),
+                    key=f"cad_bairro_cidade_{estado_bairro}",
+                )
             with cb3:
                 nome_bairro = st.text_input("Bairro", placeholder="Ex.: Centro")
             salvar_bairro = st.form_submit_button("Adicionar bairro")
@@ -3223,7 +3343,7 @@ elif pagina == "Usuários":
                         unidades_opts,
                         default=unidades_opts[:1] if unidades_opts else [],
                         key="criar_unidades",
-                        help="Captador vê os próprios leads. Supervisor/regional veem as unidades liberadas."
+                        help="Captador vê seus próprios leads. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
                     )
                     cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
                     cidades_usuario = st.multiselect(
