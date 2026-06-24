@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-bairros-fallback-final"
+VERSAO_APP = "teste-v360-bairro-select-pronto"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1088,22 +1088,70 @@ def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -
     return cidade
 
 
-def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
-    cidade = normalizar_texto(cidade)
-    estado = estado_por_cidade(cidade)
-    bairros = listar_bairros_por_cidade(estado, cidade)
 
+def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
+    cidade = normalizar_texto(cidade).strip()
+    if not cidade:
+        return ""
+
+    estado = estado_por_cidade(cidade)
+    bairros = []
+
+    # 1) Busca no Supabase por estado + cidade
+    try:
+        resp = (
+            supabase.table(TABELA_BAIRROS)
+            .select("nome")
+            .eq("estado", estado)
+            .eq("cidade", cidade)
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
+    except Exception:
+        bairros = []
+
+    # 2) Fallback: busca só pela cidade
+    if not bairros:
+        try:
+            resp = (
+                supabase.table(TABELA_BAIRROS)
+                .select("nome")
+                .eq("cidade", cidade)
+                .eq("ativo", True)
+                .order("nome")
+                .execute()
+            )
+            bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
+        except Exception:
+            bairros = []
+
+    # 3) Fallback local para cidades já cadastradas
+    if not bairros:
+        bairros = BAIRROS_FIXOS_POR_CIDADE.get(cidade.lower(), [])
+
+    # 4) Fallback Boa Vista
+    if not bairros and cidade.lower() == "boa vista":
+        bairros = BAIRROS_BOA_VISTA
+
+    # Se encontrou bairros, SEMPRE mostra lista
     if bairros:
         st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
-        return st.selectbox("Bairro *", bairros, key=f"{key}_select")
+        return st.selectbox(
+            "Bairro *",
+            bairros,
+            key=f"{key}_selectbox"
+        )
 
-    bairro_digitado = st.text_input(
+    # Se não encontrou, aí sim libera digitação manual
+    return st.text_input(
         "Bairro *",
         placeholder="Digite o bairro do cliente",
         key=f"{key}_manual",
         help="Esta cidade ainda não possui bairros cadastrados. Digite manualmente ou cadastre em Cadastros > Bairros por cidade.",
+        autocomplete="off",
     )
-    return normalizar_texto(bairro_digitado)
 
 
 def vincular_usuario_unidades(usuario_id: str, unidades: list[str]):
