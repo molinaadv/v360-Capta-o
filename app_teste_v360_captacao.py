@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-bairro-select-obrigatorio"
+VERSAO_APP = "teste-v360-bairros-fallback-final"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -115,6 +115,78 @@ BAIRROS_BOA_VISTA = [
     "União",
     "Outro",
 ]
+
+
+BAIRROS_FIXOS_POR_CIDADE = {
+    "manacapuru": [
+        "Aparecida",
+        "Área Rural de Manacapuru",
+        "Biribiri",
+        "Centro",
+        "Correnteza",
+        "Liberdade",
+        "Morada do Sol",
+        "Nova Manacá",
+        "São Francisco",
+        "São José",
+        "Terra Preta",
+        "União",
+        "Vale Verde",
+    ],
+    "presidente figueiredo": [
+        "Aida Mendonça",
+        "Centro",
+        "Galo da Serra",
+        "Galo da Serra II",
+        "Honório Roldão",
+        "José Dutra",
+        "Morada do Sol",
+        "Orquídeas",
+        "Sol Nascente",
+        "Tancredo Neves",
+        "Vale das Nascentes",
+    ],
+    "maués": [
+        "Centro",
+        "Do Éden",
+        "Donga Michiles",
+        "Maresia",
+        "Mário Fonseca",
+        "Novo Bairro",
+        "Ramalho Júnior",
+        "Santa Luzia",
+        "Santa Tereza",
+    ],
+    "parintins": [
+        "Castanheira",
+        "Centro",
+        "Distrito Industrial",
+        "Djard Vieira",
+        "Emílio Moreira",
+        "Francesa",
+        "Itaúna",
+        "Itaúna II",
+        "Jacareacanga",
+        "João Novo",
+        "Lady Laura",
+        "Macurany",
+        "Nossa Senhora de Nazaré",
+        "Palmares",
+        "Pascoal Allággio",
+        "Paulo Corrêa",
+        "Raimundo Muniz",
+        "Santa Clara",
+        "Santa Rita",
+        "Santoca",
+        "São Benedito",
+        "São José",
+        "São Vicente de Paula",
+        "Teixeirão",
+        "União",
+        "Val Paraíso",
+        "Vitória Régia",
+    ],
+}
 
 
 CIDADES_POR_UF = {
@@ -899,17 +971,16 @@ def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
 
 def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
     """
-    Busca bairros cadastrados para a cidade.
-    Primeiro tenta estado+cidade; se não encontrar, tenta apenas cidade.
-    Isso evita falha quando o estado vem diferente do cadastro.
+    Busca bairros no Supabase. Se o Supabase não retornar, usa lista fixa local
+    para as cidades já cadastradas, evitando cair no campo manual.
     """
     estado = (estado or "").strip().upper()
     cidade = normalizar_texto(cidade).strip()
+    cidade_key = cidade.lower()
 
     if not cidade:
         return []
 
-    # 1) Busca principal: estado + cidade
     try:
         resp = (
             supabase.table(TABELA_BAIRROS)
@@ -923,10 +994,9 @@ def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
         bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
         if bairros:
             return bairros
-    except Exception as e:
-        st.warning(f"Não foi possível consultar bairros por estado/cidade: {e}")
+    except Exception:
+        pass
 
-    # 2) Busca de segurança: apenas cidade
     try:
         resp = (
             supabase.table(TABELA_BAIRROS)
@@ -939,11 +1009,13 @@ def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
         bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
         if bairros:
             return bairros
-    except Exception as e:
-        st.warning(f"Não foi possível consultar bairros por cidade: {e}")
+    except Exception:
+        pass
 
-    # 3) Fallback antigo para Boa Vista
-    if cidade.lower() == "boa vista":
+    if cidade_key in BAIRROS_FIXOS_POR_CIDADE:
+        return BAIRROS_FIXOS_POR_CIDADE[cidade_key]
+
+    if cidade_key == "boa vista":
         return BAIRROS_BOA_VISTA
 
     return []
@@ -1023,8 +1095,7 @@ def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
 
     if bairros:
         st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
-        bairro_escolhido = st.selectbox("Bairro *", bairros, key=f"{key}_select")
-        return bairro_escolhido
+        return st.selectbox("Bairro *", bairros, key=f"{key}_select")
 
     bairro_digitado = st.text_input(
         "Bairro *",
