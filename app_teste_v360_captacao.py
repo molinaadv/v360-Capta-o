@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-bairro-select-pronto"
+VERSAO_APP = "teste-v360-perfil-pendencia"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1570,6 +1570,10 @@ def pode_ver_todos(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade"]
 
 
+def pode_acessar_pendencias(usuario: dict) -> bool:
+    return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade", "pendencia"]
+
+
 def pode_gerenciar_usuarios(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor_geral", "gestor_regional"]
 
@@ -1580,6 +1584,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
     if perfil == "gestor_geral":
         return [
             "captador",
+            "pendencia",
             "supervisor",
             "gestor_unidade",
             "gestor_regional",
@@ -1589,6 +1594,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
     if perfil == "gestor_regional":
         return [
             "captador",
+            "pendencia",
             "supervisor",
             "gestor_unidade",
         ]
@@ -2043,20 +2049,26 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-opcoes_base = {
-    "➕ Novo Lead": "Novo Lead",
-    "📋 Minhas Captações": "Minhas Captações",
-}
-if pode_ver_todos(usuario):
-    opcoes_base.update({
-        "📊 Dashboard Executivo": "Painel Gestor",
-        "💡 Insights V360": "Insights V360",
-        "✏️ Atualizar Lead": "Atualizar Lead",
+if usuario.get("perfil") == "pendencia":
+    opcoes_base = {
         "📌 Pendências": "Pendências",
-        "⚙️ Cadastros": "Cadastros",
-    })
-    if pode_gerenciar_usuarios(usuario):
-        opcoes_base.update({"👥 Usuários": "Usuários"})
+    }
+else:
+    opcoes_base = {
+        "➕ Novo Lead": "Novo Lead",
+        "📋 Minhas Captações": "Minhas Captações",
+    }
+
+    if pode_ver_todos(usuario):
+        opcoes_base.update({
+            "📊 Dashboard Executivo": "Painel Gestor",
+            "💡 Insights V360": "Insights V360",
+            "✏️ Atualizar Lead": "Atualizar Lead",
+            "📌 Pendências": "Pendências",
+            "⚙️ Cadastros": "Cadastros",
+        })
+        if pode_gerenciar_usuarios(usuario):
+            opcoes_base.update({"👥 Usuários": "Usuários"})
 
 pagina_label = st.sidebar.radio("", list(opcoes_base.keys()), label_visibility="collapsed")
 pagina = opcoes_base[pagina_label]
@@ -3404,7 +3416,7 @@ elif pagina == "Usuários":
                         unidades_opts,
                         default=unidades_opts[:1] if unidades_opts else [],
                         key="criar_unidades",
-                        help="Captador vê os próprios leads. Supervisor/regional veem as unidades liberadas."
+                        help="Captador vê seus próprios leads. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
                     )
                     cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
                     cidades_usuario = st.multiselect(
