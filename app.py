@@ -38,7 +38,7 @@ TABELA_BAIRROS = "captacao_bairros_teste"
 TABELA_ARQUIVOS = "captacao_arquivos_teste"
 BUCKET_ARQUIVOS = "captacao-temporario-teste"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-bairro-hardfix-manacapuru"
+VERSAO_APP = "teste-v360-cpf-opcional"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1108,6 +1108,62 @@ def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -
 
 
 
+
+def selecionar_bairro_inline(cidade: str, key: str = "bairro_inline") -> str:
+    cidade = normalizar_texto(cidade).strip()
+
+    if cidade.lower() == "manacapuru":
+        st.caption(f"{len(BAIRROS_MANACAPURU_FIXO)} bairro(s) cadastrados para Manacapuru.")
+        return st.selectbox(
+            "Bairro *",
+            BAIRROS_MANACAPURU_FIXO,
+            key=f"{key}_manacapuru"
+        )
+
+    try:
+        estado = estado_por_cidade(cidade)
+        resp = (
+            supabase.table(TABELA_BAIRROS)
+            .select("nome")
+            .eq("estado", estado)
+            .eq("cidade", cidade)
+            .eq("ativo", True)
+            .order("nome")
+            .execute()
+        )
+        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
+    except Exception:
+        bairros = []
+
+    if not bairros:
+        try:
+            resp = (
+                supabase.table(TABELA_BAIRROS)
+                .select("nome")
+                .eq("cidade", cidade)
+                .eq("ativo", True)
+                .order("nome")
+                .execute()
+            )
+            bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
+        except Exception:
+            bairros = []
+
+    if not bairros and cidade.lower() == "boa vista":
+        bairros = BAIRROS_BOA_VISTA
+
+    if bairros:
+        st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
+        return st.selectbox("Bairro *", bairros, key=f"{key}_select")
+
+    return st.text_input(
+        "Bairro *",
+        placeholder="Digite o bairro do cliente",
+        key=f"{key}_manual",
+        autocomplete="off",
+    )
+
+
 def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
     cidade = normalizar_texto(cidade).strip()
 
@@ -1730,9 +1786,9 @@ if perfil == "captador":
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
             cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_mobile")
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
-            cpf = st.text_input("CPF *", placeholder="000.000.000-00")
+            cpf = st.text_input("CPF", placeholder="000.000.000-00")
             telefone = st.text_input("Telefone *", placeholder="(95) 99999-9999")
-            bairro = selecionar_bairro_por_cidade(cidade_lead, key="bairro_lead_mobile")
+            bairro = selecionar_bairro_inline(cidade_lead, key="bairro_lead_mobile")
             locais_opcoes = listar_locais_captacao()
             if locais_opcoes:
                 local_sel = st.selectbox("Local da captação *", ["Outro / digitar"] + locais_opcoes)
@@ -2116,9 +2172,9 @@ if pagina == "Novo Lead":
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_desktop")
             cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_desktop")
             nome_cliente = st.text_input("Nome do cliente *")
-            cpf = st.text_input("CPF *")
+            cpf = st.text_input("CPF")
             telefone = st.text_input("Telefone *")
-            bairro = selecionar_bairro_por_cidade(cidade_lead, key="bairro_lead_desktop")
+            bairro = selecionar_bairro_inline(cidade_lead, key="bairro_lead_desktop")
         with col2:
             locais_opcoes = listar_locais_captacao()
             if locais_opcoes:
