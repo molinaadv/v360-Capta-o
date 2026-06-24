@@ -1,5 +1,3 @@
-
-MODO_BASE = 'TESTE'
 import base64
 from pathlib import Path
 from datetime import date, timedelta, datetime, timezone
@@ -18,27 +16,27 @@ from supabase import create_client, Client
 # =====================================================
 
 st.set_page_config(
-    page_title="V360 Captação - TESTE",
+    page_title="V360 Captação",
     page_icon="📍",
     layout="wide"
 )
 
-TABELA_USUARIOS = "captacao_usuarios_teste"
-TABELA_LEADS = "captacao_leads_teste"
-TABELA_HISTORICO = "captacao_lead_historico_teste"
+TABELA_USUARIOS = "captacao_usuarios"
+TABELA_LEADS = "captacao_leads"
+TABELA_HISTORICO = "captacao_lead_historico"
 TABELA_BENEFICIOS = "captacao_beneficios"
 TABELA_LOCAIS = "captacao_locais_captacao"
-TABELA_PENDENCIAS = "captacao_pendencias_teste"
-TABELA_TIPOS_PENDENCIA = "captacao_tipos_pendencia_teste"
-TABELA_UNIDADES = "captacao_unidades_teste"
-TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades_teste"
-TABELA_USUARIO_CIDADES = "captacao_usuario_cidades_teste"
-TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo_teste"
-TABELA_BAIRROS = "captacao_bairros_teste"
-TABELA_ARQUIVOS = "captacao_arquivos_teste"
-BUCKET_ARQUIVOS = "captacao-temporario-teste"
+TABELA_PENDENCIAS = "captacao_pendencias"
+TABELA_TIPOS_PENDENCIA = "captacao_tipos_pendencia"
+TABELA_UNIDADES = "captacao_unidades"
+TABELA_USUARIO_UNIDADES = "captacao_usuario_unidades"
+TABELA_USUARIO_CIDADES = "captacao_usuario_cidades"
+TABELA_TIPOS_ARQUIVO = "captacao_tipos_arquivo"
+TABELA_BAIRROS = "captacao_bairros"
+TABELA_ARQUIVOS = "captacao_arquivos"
+BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "teste-v360-cpf-opcional"
+VERSAO_APP = "producao-v360-cpf-opcional-bairro"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -613,28 +611,6 @@ def header_desktop(usuario):
 
 aplicar_css_base()
 
-
-def banner_homologacao():
-    st.markdown(
-        """
-        <div style="
-            background: linear-gradient(90deg, #B45309, #F59E0B);
-            color: white;
-            padding: 12px 18px;
-            border-radius: 14px;
-            margin: 8px 0 18px 0;
-            font-weight: 950;
-            text-align: center;
-            letter-spacing: .8px;
-            box-shadow: 0 8px 20px rgba(180,83,9,.18);
-        ">
-            ⚠️ AMBIENTE DE TESTES / HOMOLOGAÇÃO — DADOS SEPARADOS DA PRODUÇÃO
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
 # -------------------------------
 # FUNÇÕES AUXILIARES
 # -------------------------------
@@ -1107,8 +1083,6 @@ def selecionar_cidade_por_unidade(unidade_nome: str, key: str = "cidade_lead") -
 
 
 
-
-
 def selecionar_bairro_inline(cidade: str, key: str = "bairro_inline") -> str:
     cidade = normalizar_texto(cidade).strip()
 
@@ -1149,6 +1123,9 @@ def selecionar_bairro_inline(cidade: str, key: str = "bairro_inline") -> str:
         except Exception:
             bairros = []
 
+    if not bairros and "BAIRROS_FIXOS_POR_CIDADE" in globals():
+        bairros = BAIRROS_FIXOS_POR_CIDADE.get(cidade.lower(), [])
+
     if not bairros and cidade.lower() == "boa vista":
         bairros = BAIRROS_BOA_VISTA
 
@@ -1165,73 +1142,21 @@ def selecionar_bairro_inline(cidade: str, key: str = "bairro_inline") -> str:
 
 
 def selecionar_bairro_por_cidade(cidade: str, key: str = "bairro_lead") -> str:
-    cidade = normalizar_texto(cidade).strip()
-
-    # CORREÇÃO DIRETA:
-    # Se a cidade for Manacapuru, sempre mostra lista, sem depender do Supabase.
-    if cidade.lower() == "manacapuru":
-        st.caption(f"{len(BAIRROS_MANACAPURU_FIXO)} bairro(s) cadastrados para Manacapuru.")
-        return st.selectbox(
-            "Bairro *",
-            BAIRROS_MANACAPURU_FIXO,
-            key=f"{key}_manacapuru_select"
-        )
-
-    if not cidade:
-        return ""
-
+    cidade = normalizar_texto(cidade)
     estado = estado_por_cidade(cidade)
-    bairros = []
-
-    try:
-        resp = (
-            supabase.table(TABELA_BAIRROS)
-            .select("nome")
-            .eq("estado", estado)
-            .eq("cidade", cidade)
-            .eq("ativo", True)
-            .order("nome")
-            .execute()
-        )
-        bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
-    except Exception:
-        bairros = []
-
-    if not bairros:
-        try:
-            resp = (
-                supabase.table(TABELA_BAIRROS)
-                .select("nome")
-                .eq("cidade", cidade)
-                .eq("ativo", True)
-                .order("nome")
-                .execute()
-            )
-            bairros = sorted({r.get("nome") for r in (resp.data or []) if r.get("nome")})
-        except Exception:
-            bairros = []
-
-    if not bairros and "BAIRROS_FIXOS_POR_CIDADE" in globals():
-        bairros = BAIRROS_FIXOS_POR_CIDADE.get(cidade.lower(), [])
-
-    if not bairros and cidade.lower() == "boa vista":
-        bairros = BAIRROS_BOA_VISTA
+    bairros = listar_bairros_por_cidade(estado, cidade)
 
     if bairros:
         st.caption(f"{len(bairros)} bairro(s) cadastrados para {cidade}.")
-        return st.selectbox(
-            "Bairro *",
-            bairros,
-            key=f"{key}_selectbox"
-        )
+        return st.selectbox("Bairro *", bairros, key=f"{key}_select")
 
-    return st.text_input(
+    bairro_digitado = st.text_input(
         "Bairro *",
         placeholder="Digite o bairro do cliente",
         key=f"{key}_manual",
         help="Esta cidade ainda não possui bairros cadastrados. Digite manualmente ou cadastre em Cadastros > Bairros por cidade.",
-        autocomplete="off",
     )
+    return normalizar_texto(bairro_digitado)
 
 
 def vincular_usuario_unidades(usuario_id: str, unidades: list[str]):
@@ -1437,16 +1362,18 @@ def caminho_arquivo_storage(lead_id: str, nome_arquivo: str) -> str:
 
 
 
-def lista_arquivos_com_camera(arquivos_upload, foto_camera=None, nome_base: str = "foto_documento.jpg"):
+def lista_arquivos_com_foto(arquivos_upload, foto_camera=None, nome_base: str = "foto_documento.jpg"):
     """
     Junta arquivos do upload múltiplo com uma foto/arquivo único.
-    No celular, o segundo uploader de foto funciona melhor porque o Android
-    abre a câmera nativa e devolve um único arquivo.
+    O campo de foto sempre é salvo como .jpg, independentemente da extensão original.
     """
     arquivos = list(arquivos_upload or [])
     if foto_camera:
+        nome_jpg = nome_base
+        if not nome_jpg.lower().endswith(".jpg"):
+            nome_jpg = nome_jpg.rsplit(".", 1)[0] + ".jpg"
         try:
-            foto_camera.name = nome_base
+            foto_camera.name = nome_jpg
         except Exception:
             pass
         arquivos.append(foto_camera)
@@ -1732,7 +1659,6 @@ if "captador_pagina" not in st.session_state:
 if st.session_state.usuario is None:
     aplicar_css_mobile()
     header_mobile()
-    banner_homologacao()
     abrir_card_mobile("Acesso", "Entre para registrar captações")
     with st.form("form_login"):
         email = st.text_input("E-mail")
@@ -1760,7 +1686,6 @@ perfil = usuario.get("perfil")
 if perfil == "captador":
     aplicar_css_mobile()
     header_mobile()
-    banner_homologacao()
 
     opcoes_captador = ["➕ Novo Lead", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
     mapa_captador = {"➕ Novo Lead": "Novo Lead", "📋 Minhas": "Minhas Captações", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
@@ -1841,7 +1766,7 @@ if perfil == "captador":
                     novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                     if novo_id:
                         salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
-                        arquivos_para_enviar = lista_arquivos_com_camera(
+                        arquivos_para_enviar = lista_arquivos_com_foto(
                             arquivos_upload,
                             foto_camera_upload,
                             f"foto_{limpar_cpf(cpf) or novo_id}.jpg",
@@ -1984,7 +1909,7 @@ if perfil == "captador":
                     try:
                         enviados = 0
                         lead_id_p = str(pend.get("lead_id", ""))
-                        arquivos_p_enviar = lista_arquivos_com_camera(
+                        arquivos_p_enviar = lista_arquivos_com_foto(
                             arquivos_p,
                             foto_p_upload,
                             f"foto_pendencia_{lead_id_p}.jpg",
@@ -2073,7 +1998,7 @@ if perfil == "captador":
                         enviar_docs = st.form_submit_button("📎 ENVIAR DOCUMENTOS")
 
                     if enviar_docs:
-                        arquivos_extra_enviar = lista_arquivos_com_camera(
+                        arquivos_extra_enviar = lista_arquivos_com_foto(
                             arquivos_extra,
                             foto_extra_upload,
                             f"foto_extra_{str(lead['id'])}.jpg",
@@ -2103,7 +2028,6 @@ if perfil == "captador":
 # -------------------------------
 aplicar_css_sidebar_desktop()
 header_desktop(usuario)
-banner_homologacao()
 
 st.sidebar.markdown(
     """
@@ -2228,7 +2152,7 @@ if pagina == "Novo Lead":
                 novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                 if novo_id:
                     salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
-                    arquivos_para_enviar = lista_arquivos_com_camera(
+                    arquivos_para_enviar = lista_arquivos_com_foto(
                         arquivos_upload,
                         foto_camera_desktop_upload,
                         f"foto_{limpar_cpf(cpf) or novo_id}.jpg",
