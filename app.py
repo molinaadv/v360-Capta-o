@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cpf-opcional-bairro"
+VERSAO_APP = "producao-v360-cadastros-cidades"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -878,11 +878,11 @@ def nome_estado_por_uf(uf: str) -> str:
 
 
 def cidades_de_unidades(unidades: list[str]) -> list[str]:
-    """Retorna todas as cidades possíveis das unidades/estados informados."""
+    """Retorna cidades possíveis das unidades/estados, incluindo cidades cadastradas."""
     cidades = []
     for unidade in unidades or []:
         uf = estado_da_unidade(unidade)
-        for cidade in CIDADES_POR_UF.get(uf, ["Outro"]):
+        for cidade in listar_cidades_cadastradas(uf):
             if cidade not in cidades:
                 cidades.append(cidade)
     return cidades or ["Boa Vista"]
@@ -942,20 +942,34 @@ def estado_por_cidade(cidade: str) -> str:
     for uf, cidades in CIDADES_POR_UF.items():
         if cidade_norm in [normalizar_texto(c).lower() for c in cidades]:
             return uf
+
+    try:
+        resp = (
+            supabase.table(TABELA_BAIRROS)
+            .select("estado,cidade")
+            .ilike("cidade", normalizar_texto(cidade))
+            .limit(1)
+            .execute()
+        )
+        if resp.data:
+            estado = str(resp.data[0].get("estado", "")).upper()
+            if estado:
+                return estado
+    except Exception:
+        pass
+
     return "RR" if cidade_norm == "boa vista" else "AM"
 
 
 def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
     uf = estado_da_unidade(unidade_nome)
-    todas = CIDADES_POR_UF.get(uf, ["Outro"])
+    todas = listar_cidades_cadastradas(uf) or CIDADES_POR_UF.get(uf, ["Outro"])
 
     if not usuario or usuario_eh_geral(usuario):
         return todas
 
     cidades_usuario = listar_cidades_usuario(str(usuario.get("id", "")))
 
-    # Fallback para não travar usuários antigos: se não houver cidades cadastradas,
-    # libera as cidades do estado/unidade atual.
     if not cidades_usuario:
         return todas
 
@@ -1023,6 +1037,54 @@ def criar_bairro_cidade(estado: str, cidade: str, bairro: str):
         "ativo": True,
     }
     return supabase.table(TABELA_BAIRROS).insert(dados).execute()
+
+
+
+def listar_cidades_cadastradas(estado: str | None = None) -> list[str]:
+    """
+    Lista cidades cadastradas. Usa a tabela de bairros como base:
+    cada cidade cadastrada recebe um bairro marcador chamado 'Outro'.
+    """
+    cidades = set()
+
+    try:
+        q = supabase.table(TABELA_BAIRROS).select("estado,cidade").eq("ativo", True)
+        if estado:
+            q = q.eq("estado", estado)
+        resp = q.execute()
+        for r in (resp.data or []):
+            c = r.get("cidade")
+            if c:
+                cidades.add(normalizar_texto(c))
+    except Exception:
+        pass
+
+    if estado:
+        for c in CIDADES_POR_UF.get(estado, []):
+            cidades.add(c)
+    else:
+        for lista in CIDADES_POR_UF.values():
+            for c in lista:
+                cidades.add(c)
+
+    return sorted(cidades)
+
+
+def criar_cidade(estado: str, cidade: str):
+    """
+    Cadastra uma cidade usando bairro marcador 'Outro'.
+    Assim ela aparece nos selects mesmo antes de cadastrar bairros específicos.
+    """
+    estado = (estado or "").strip().upper()
+    cidade = normalizar_texto(cidade)
+    if not cidade:
+        raise ValueError("Informe a cidade.")
+    return supabase.table(TABELA_BAIRROS).insert({
+        "estado": estado,
+        "cidade": cidade,
+        "nome": "Outro",
+        "ativo": True,
+    }).execute()
 
 
 def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
@@ -1733,7 +1795,7 @@ if perfil == "captador":
         if enviar:
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
-            if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
+            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
             elif not cpf_valido_ou_vazio(cpf):
                 st.error("CPF inválido. Use 11 números.")
@@ -2119,7 +2181,7 @@ if pagina == "Novo Lead":
         cpf_limpo = limpar_cpf(cpf)
         duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
 
-        if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
+        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
             st.error("Preencha os campos obrigatórios marcados com *.")
         elif not cpf_valido_ou_vazio(cpf):
             st.error("CPF inválido. Use 11 números.")
@@ -3197,7 +3259,7 @@ elif pagina == "Cadastros":
     st.title("⚙️ Cadastros")
     st.caption("Cadastre benefícios, locais de captação, tipos de arquivos e unidades sem precisar alterar o código.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Tipos de Pendência", "Unidades", "Bairros por cidade"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Tipos de Pendência", "Unidades", "Cidades", "Bairros por cidade"])
     with tab1:
         st.subheader("Benefícios")
         with st.form("form_novo_beneficio"):
@@ -3298,7 +3360,47 @@ elif pagina == "Cadastros":
             st.dataframe(unidades_df[cols_unidades], use_container_width=True, hide_index=True)
 
 
+
     with tab6:
+        st.subheader("Cidades")
+        st.caption("Cadastre cidades para aparecerem nos selects do captador e no cadastro de usuários.")
+
+        with st.form("form_nova_cidade"):
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                estado_cidade = st.selectbox(
+                    "Estado",
+                    ["AM", "RR"],
+                    format_func=nome_estado_por_uf,
+                    key="cad_cidade_estado",
+                )
+            with cc2:
+                nome_cidade = st.text_input("Nova cidade", placeholder="Ex.: Balbina")
+            salvar_cidade = st.form_submit_button("Adicionar cidade")
+
+        if salvar_cidade:
+            if not nome_cidade.strip():
+                st.error("Informe o nome da cidade.")
+            else:
+                try:
+                    criar_cidade(estado_cidade, nome_cidade)
+                    st.success("Cidade cadastrada com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.warning(f"Não foi possível cadastrar ou a cidade já existe: {e}")
+
+        try:
+            cidades_linhas = []
+            for uf in ["AM", "RR"]:
+                for c in listar_cidades_cadastradas(uf):
+                    cidades_linhas.append({"Estado": uf, "Cidade": c})
+            cidades_df = pd.DataFrame(cidades_linhas).drop_duplicates().sort_values(["Estado", "Cidade"])
+            st.dataframe(cidades_df, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.warning(f"Não foi possível listar cidades: {e}")
+
+
+    with tab7:
         st.subheader("Bairros por cidade")
         st.caption("Cadastre bairros para que o captador selecione em vez de digitar manualmente.")
         with st.form("form_novo_bairro_cidade"):
