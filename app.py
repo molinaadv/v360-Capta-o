@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cpf-opcional-desktop-corrigido"
+VERSAO_APP = "producao-v360-transferencia-leads"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1394,6 +1394,50 @@ def carregar_historico(lead_id: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+
+def transferir_leads_em_lote(
+    lead_ids: list[str],
+    novo_captador: dict,
+    usuario_responsavel: dict,
+    motivo: str = "",
+):
+    """
+    Transfere leads em lote para outro captador e registra histórico individual.
+    """
+    if not lead_ids:
+        raise ValueError("Nenhum lead selecionado.")
+    if not novo_captador or not novo_captador.get("id"):
+        raise ValueError("Novo captador inválido.")
+
+    dados_update = {
+        "captador_id": str(novo_captador.get("id")),
+        "captador_nome": novo_captador.get("nome"),
+    }
+
+    supabase.table(TABELA_LEADS).update(dados_update).in_("id", lead_ids).execute()
+
+    texto_motivo = motivo.strip()
+    for lead_id in lead_ids:
+        observacao = (
+            f"Lead transferido para {novo_captador.get('nome')} "
+            f"por {usuario_responsavel.get('nome')}."
+        )
+        if texto_motivo:
+            observacao += f" Motivo: {texto_motivo}"
+        try:
+            salvar_historico(
+                str(lead_id),
+                usuario_responsavel.get("nome", ""),
+                "Transferido",
+                observacao,
+                "Transferência de lead",
+            )
+        except Exception:
+            pass
+
+    return True
+
+
 def carregar_leads():
     try:
         resp = (
@@ -1795,7 +1839,7 @@ if perfil == "captador":
         if enviar:
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
-            if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
+            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
             elif not cpf_valido_ou_vazio(cpf):
                 st.error("CPF inválido. Use 11 números.")
@@ -2130,6 +2174,7 @@ else:
             "📊 Dashboard Executivo": "Painel Gestor",
             "💡 Insights V360": "Insights V360",
             "✏️ Atualizar Lead": "Atualizar Lead",
+            "🔁 Transferência de Leads": "Transferência de Leads",
             "📌 Pendências": "Pendências",
             "⚙️ Cadastros": "Cadastros",
         })
@@ -2181,7 +2226,7 @@ if pagina == "Novo Lead":
         cpf_limpo = limpar_cpf(cpf)
         duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
 
-        if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
+        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
             st.error("Preencha os campos obrigatórios marcados com *.")
         elif not cpf_valido_ou_vazio(cpf):
             st.error("CPF inválido. Use 11 números.")
@@ -2813,6 +2858,274 @@ elif pagina == "Insights V360":
         alertas.append("Nenhum alerta crítico identificado no período filtrado.")
     for item in alertas:
         st.markdown(f"<div class='alert-card'>🚨 {item}</div>", unsafe_allow_html=True)
+
+
+# -------------------------------
+# TRANSFERÊNCIA DE LEADS
+# -------------------------------
+elif pagina == "Transferência de Leads":
+    st.title("🔁 Transferência de Leads")
+    st.caption("Transfira um ou vários leads para outro captador, com registro no histórico.")
+
+    df_transferencia = aplicar_escopo_unidade(carregar_leads(), usuario)
+
+    if df_transferencia.empty:
+        st.info("Nenhum lead disponível no seu escopo.")
+        st.stop()
+
+    for col in [
+        "id", "nome_cliente", "cpf", "telefone", "cidade", "bairro",
+        "captador_id", "captador_nome", "status_lead", "data_captacao", "unidade"
+    ]:
+        if col not in df_transferencia.columns:
+            df_transferencia[col] = ""
+
+    captadores_ativos = [
+        u for u in listar_usuarios_ativos()
+        if u.get("perfil") == "captador"
+    ]
+
+    # Mantém apenas captadores dentro do escopo do gestor.
+    captadores_escopo = []
+    unidades_admin = set(unidades_permitidas_usuario(usuario))
+    for captador in captadores_ativos:
+        unidades_captador = set(listar_unidades_usuario(str(captador.get("id", ""))))
+        unidade_padrao = (
+            captador.get("unidade_padrao")
+            or captador.get("unidade")
+            or captador.get("unidade_nome")
+        )
+        if unidade_padrao:
+            unidades_captador.add(unidade_padrao)
+        if usuario_eh_geral(usuario) or unidades_admin.intersection(unidades_captador):
+            captadores_escopo.append(captador)
+
+    if not captadores_escopo:
+        st.warning("Nenhum captador ativo disponível dentro do seu escopo.")
+        st.stop()
+
+    st.markdown("### 1. Filtrar leads")
+    f1, f2, f3, f4 = st.columns(4)
+
+    with f1:
+        captadores_origem = sorted(
+            [x for x in df_transferencia["captador_nome"].fillna("").unique().tolist() if x]
+        )
+        filtro_captador_origem = st.multiselect(
+            "Captador atual",
+            captadores_origem,
+            key="transf_filtro_captador_origem",
+        )
+
+    with f2:
+        filtro_status = st.multiselect(
+            "Status",
+            STATUS_LEAD,
+            default=STATUS_LEAD,
+            key="transf_filtro_status",
+        )
+
+    with f3:
+        cidades_transferencia = sorted(
+            [x for x in df_transferencia["cidade"].fillna("").unique().tolist() if x]
+        )
+        filtro_cidade = st.multiselect(
+            "Cidade",
+            cidades_transferencia,
+            key="transf_filtro_cidade",
+        )
+
+    with f4:
+        unidades_transferencia = sorted(
+            [x for x in df_transferencia["unidade"].fillna("").unique().tolist() if x]
+        )
+        filtro_unidade = st.multiselect(
+            "Unidade",
+            unidades_transferencia,
+            key="transf_filtro_unidade",
+        )
+
+    f5, f6, f7 = st.columns([1.5, 1, 1])
+    with f5:
+        busca_transferencia = st.text_input(
+            "Buscar por nome, CPF, telefone ou bairro",
+            placeholder="Digite parte do nome, CPF, telefone ou bairro...",
+            key="transf_busca",
+        )
+    with f6:
+        data_minima = pd.to_datetime(
+            df_transferencia["data_captacao"], errors="coerce"
+        ).dropna().dt.date.min()
+        data_maxima = pd.to_datetime(
+            df_transferencia["data_captacao"], errors="coerce"
+        ).dropna().dt.date.max()
+        data_inicial = st.date_input(
+            "Data inicial",
+            value=data_minima or date.today(),
+            key="transf_data_inicial",
+        )
+    with f7:
+        data_final = st.date_input(
+            "Data final",
+            value=data_maxima or date.today(),
+            key="transf_data_final",
+        )
+
+    df_filtrado = df_transferencia.copy()
+    df_filtrado["data_captacao_dt"] = pd.to_datetime(
+        df_filtrado["data_captacao"], errors="coerce"
+    )
+
+    if filtro_captador_origem:
+        df_filtrado = df_filtrado[
+            df_filtrado["captador_nome"].isin(filtro_captador_origem)
+        ]
+    if filtro_status:
+        df_filtrado = df_filtrado[
+            df_filtrado["status_lead"].isin(filtro_status)
+        ]
+    if filtro_cidade:
+        df_filtrado = df_filtrado[
+            df_filtrado["cidade"].isin(filtro_cidade)
+        ]
+    if filtro_unidade:
+        df_filtrado = df_filtrado[
+            df_filtrado["unidade"].isin(filtro_unidade)
+        ]
+
+    if not df_filtrado.empty:
+        datas = df_filtrado["data_captacao_dt"].dt.date
+        df_filtrado = df_filtrado[
+            (datas >= data_inicial) & (datas <= data_final)
+        ]
+
+    if busca_transferencia.strip():
+        termo = busca_transferencia.strip().lower()
+        termo_digitos = apenas_digitos(busca_transferencia)
+        mask = pd.Series(False, index=df_filtrado.index)
+
+        for col in ["nome_cliente", "cpf", "telefone", "bairro", "cidade", "captador_nome"]:
+            mask = mask | df_filtrado[col].fillna("").astype(str).str.lower().str.contains(
+                termo, na=False
+            )
+
+        if termo_digitos:
+            mask = mask | df_filtrado["cpf"].fillna("").astype(str).apply(
+                apenas_digitos
+            ).str.contains(termo_digitos, na=False)
+            mask = mask | df_filtrado["telefone"].fillna("").astype(str).apply(
+                apenas_digitos
+            ).str.contains(termo_digitos, na=False)
+
+        df_filtrado = df_filtrado[mask]
+
+    st.caption(f"{len(df_filtrado)} lead(s) encontrado(s).")
+
+    if df_filtrado.empty:
+        st.warning("Nenhum lead encontrado com os filtros selecionados.")
+        st.stop()
+
+    df_filtrado = df_filtrado.copy()
+    df_filtrado["Selecionar"] = False
+
+    colunas_editor = [
+        "Selecionar",
+        "nome_cliente",
+        "cpf",
+        "telefone",
+        "cidade",
+        "bairro",
+        "captador_nome",
+        "status_lead",
+        "data_captacao",
+    ]
+
+    st.markdown("### 2. Selecionar leads")
+    df_editado = st.data_editor(
+        preparar_dataframe_exibicao(df_filtrado[colunas_editor]),
+        use_container_width=True,
+        hide_index=True,
+        disabled=[
+            "nome_cliente",
+            "cpf",
+            "telefone",
+            "cidade",
+            "bairro",
+            "captador_nome",
+            "status_lead",
+            "data_captacao",
+        ],
+        column_config={
+            "Selecionar": st.column_config.CheckboxColumn(
+                "Selecionar",
+                help="Marque os leads que deseja transferir.",
+                default=False,
+            ),
+            "nome_cliente": "Cliente",
+            "cpf": "CPF",
+            "telefone": "Telefone",
+            "cidade": "Cidade",
+            "bairro": "Bairro",
+            "captador_nome": "Captador atual",
+            "status_lead": "Status",
+            "data_captacao": "Data da captação",
+        },
+        key="transf_editor_leads",
+    )
+
+    selecionados_indices = df_editado.index[df_editado["Selecionar"] == True].tolist()
+    lead_ids_selecionados = [
+        str(df_filtrado.iloc[i]["id"])
+        for i in selecionados_indices
+    ]
+
+    st.info(f"{len(lead_ids_selecionados)} lead(s) selecionado(s).")
+
+    st.markdown("### 3. Definir novo captador")
+    nomes_captadores_destino = [c.get("nome") for c in captadores_escopo]
+    novo_captador_nome = st.selectbox(
+        "Novo captador",
+        nomes_captadores_destino,
+        key="transf_novo_captador",
+    )
+    motivo_transferencia = st.text_area(
+        "Motivo da transferência",
+        placeholder="Ex.: Redistribuição de carteira, mudança de unidade, desligamento...",
+        key="transf_motivo",
+    )
+
+    confirmar_transferencia = st.checkbox(
+        "Confirmo que desejo transferir os leads selecionados.",
+        key="transf_confirmacao",
+    )
+
+    if st.button(
+        "🔁 Transferir leads selecionados",
+        type="primary",
+        disabled=not lead_ids_selecionados,
+    ):
+        if not confirmar_transferencia:
+            st.error("Marque a confirmação antes de transferir.")
+        else:
+            novo_captador = next(
+                (c for c in captadores_escopo if c.get("nome") == novo_captador_nome),
+                None,
+            )
+            try:
+                transferir_leads_em_lote(
+                    lead_ids_selecionados,
+                    novo_captador,
+                    usuario,
+                    motivo_transferencia,
+                )
+                st.success(
+                    f"{len(lead_ids_selecionados)} lead(s) transferido(s) "
+                    f"para {novo_captador_nome} com sucesso."
+                )
+                st.rerun()
+            except Exception as e:
+                st.error(f"Erro ao transferir leads: {e}")
+
 
 # -------------------------------
 # PENDÊNCIAS DOCUMENTAIS
