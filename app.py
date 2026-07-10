@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cadastros-cidades"
+VERSAO_APP = "producao-v360-validacao-campos-corrigida"
 
 # -------------------------------
 # CONEXÃO SUPABASE
