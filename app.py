@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-validacao-campos-corrigida"
+VERSAO_APP = "producao-v360-cpf-opcional-desktop-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1795,7 +1795,7 @@ if perfil == "captador":
         if enviar:
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
-            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
+            if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
             elif not cpf_valido_ou_vazio(cpf):
                 st.error("CPF inválido. Use 11 números.")
@@ -2181,7 +2181,7 @@ if pagina == "Novo Lead":
         cpf_limpo = limpar_cpf(cpf)
         duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
 
-        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
+        if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
             st.error("Preencha os campos obrigatórios marcados com *.")
         elif not cpf_valido_ou_vazio(cpf):
             st.error("CPF inválido. Use 11 números.")
