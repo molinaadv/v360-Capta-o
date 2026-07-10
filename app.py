@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-transferencia-leads"
+VERSAO_APP = "producao-v360-transferencia-leads-indice-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -3073,10 +3073,14 @@ elif pagina == "Transferência de Leads":
         key="transf_editor_leads",
     )
 
+    # O data_editor preserva os índices originais do DataFrame filtrado.
+    # Por isso usamos .loc (índice por rótulo), e não .iloc (posição),
+    # evitando IndexError quando o filtro retorna poucas linhas com índices altos.
     selecionados_indices = df_editado.index[df_editado["Selecionar"] == True].tolist()
     lead_ids_selecionados = [
-        str(df_filtrado.iloc[i]["id"])
+        str(df_filtrado.loc[i, "id"])
         for i in selecionados_indices
+        if i in df_filtrado.index
     ]
 
     st.info(f"{len(lead_ids_selecionados)} lead(s) selecionado(s).")
