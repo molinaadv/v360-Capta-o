@@ -16,7 +16,7 @@ from supabase import create_client, Client
 # =====================================================
 
 st.set_page_config(
-    page_title="V360 Captação",
+    page_title="V360 Clientes",
     page_icon="📍",
     layout="wide"
 )
@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-agenda-atendimentos"
+VERSAO_APP = "producao-v360-clientes-agenda"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -582,7 +582,7 @@ def header_mobile():
     )
 
 
-def abrir_card_mobile(titulo="Novo Lead", subtitulo="Preencha os dados do cliente"):
+def abrir_card_mobile(titulo="Novo Cliente", subtitulo="Preencha os dados do cliente"):
     st.markdown(
         f"""
         <div class="mobile-card">
@@ -597,9 +597,9 @@ def fechar_card_mobile():
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-def mobile_bottom_nav(ativo="Novo Lead"):
-    novo_class = "mobile-tab active" if ativo == "Novo Lead" else "mobile-tab"
-    minhas_class = "mobile-tab active" if ativo == "Minhas Captações" else "mobile-tab"
+def mobile_bottom_nav(ativo="Novo Cliente"):
+    novo_class = "mobile-tab active" if ativo == "Novo Cliente" else "mobile-tab"
+    minhas_class = "mobile-tab active" if ativo == "Minhas Clientes" else "mobile-tab"
     st.markdown(
         f"""
         <div class="mobile-tabs">
@@ -1435,10 +1435,10 @@ def transferir_leads_em_lote(
     motivo: str = "",
 ):
     """
-    Transfere leads em lote para outro captador e registra histórico individual.
+    Transfere clientes em lote para outro captador e registra histórico individual.
     """
     if not lead_ids:
-        raise ValueError("Nenhum lead selecionado.")
+        raise ValueError("Nenhum cliente selecionado.")
     if not novo_captador or not novo_captador.get("id"):
         raise ValueError("Novo captador inválido.")
 
@@ -1463,7 +1463,7 @@ def transferir_leads_em_lote(
                 usuario_responsavel.get("nome", ""),
                 "Transferido",
                 observacao,
-                "Transferência de lead",
+                "Transferência de cliente",
             )
         except Exception:
             pass
@@ -1754,7 +1754,7 @@ def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cl
     st.markdown("### 📎 Arquivos do Cliente")
     arquivos_df = carregar_arquivos_lead(lead_id)
     if arquivos_df.empty:
-        st.info("Nenhum arquivo enviado para este lead.")
+        st.info("Nenhum arquivo enviado para este cliente.")
         return
 
     arquivos_df["status_arquivo"] = arquivos_df["status_arquivo"].fillna("Pendente")
@@ -1891,12 +1891,12 @@ def filtrar_usuarios_por_escopo_admin(usuarios: list[dict], admin: dict) -> list
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
 if "captador_pagina" not in st.session_state:
-    st.session_state.captador_pagina = "Novo Lead"
+    st.session_state.captador_pagina = "Novo Cliente"
 
 if st.session_state.usuario is None:
     aplicar_css_mobile()
     header_mobile()
-    abrir_card_mobile("Acesso", "Entre para registrar captações")
+    abrir_card_mobile("Acesso", "Entre para registrar clientes")
     with st.form("form_login"):
         email = st.text_input("E-mail")
         senha = st.text_input("Senha", type="password")
@@ -1924,9 +1924,9 @@ if perfil == "captador":
     aplicar_css_mobile()
     header_mobile()
 
-    opcoes_captador = ["➕ Novo Lead", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
-    mapa_captador = {"➕ Novo Lead": "Novo Lead", "📋 Minhas": "Minhas Captações", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
-    pagina_atual_label = next((k for k, v in mapa_captador.items() if v == st.session_state.captador_pagina), "➕ Novo Lead")
+    opcoes_captador = ["➕ Novo Cliente", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
+    mapa_captador = {"➕ Novo Cliente": "Novo Cliente", "📋 Minhas": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
+    pagina_atual_label = next((k for k, v in mapa_captador.items() if v == st.session_state.captador_pagina), "➕ Novo Cliente")
     st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
     nav_escolhida = st.radio(
         "Navegação",
@@ -1942,8 +1942,8 @@ if perfil == "captador":
         st.session_state.captador_pagina = nova_pagina
         st.rerun()
 
-    if st.session_state.captador_pagina == "Novo Lead":
-        abrir_card_mobile("Novo Lead", "Preencha os dados do cliente")
+    if st.session_state.captador_pagina == "Novo Cliente":
+        abrir_card_mobile("Novo Cliente", "Preencha os dados do cliente")
         with st.form("form_novo_lead_mobile", clear_on_submit=True):
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
             cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_mobile")
@@ -1953,17 +1953,17 @@ if perfil == "captador":
             bairro = selecionar_bairro_inline(cidade_lead, key="bairro_lead_mobile")
             locais_opcoes = listar_locais_captacao()
             if locais_opcoes:
-                local_sel = st.selectbox("Local da captação *", ["Outro / digitar"] + locais_opcoes)
+                local_sel = st.selectbox("Local da clientes *", ["Outro / digitar"] + locais_opcoes)
                 local_captacao = st.text_input("Digite o local" if local_sel == "Outro / digitar" else "Confirmar local", value="" if local_sel == "Outro / digitar" else local_sel, placeholder="Ex.: Feira, praça, INSS, ação social...")
             else:
-                local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
+                local_captacao = st.text_input("Local da clientes *", placeholder="Ex.: Feira, praça, INSS, ação social...")
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_mobile")
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
             foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
-            enviar = st.form_submit_button("💾 SALVAR LEAD")
+            enviar = st.form_submit_button("💾 SALVAR CLIENTE")
             st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
         fechar_card_mobile()
 
@@ -2002,7 +2002,7 @@ if perfil == "captador":
                     resp = salvar_lead(dados)
                     novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                     if novo_id:
-                        salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
+                        salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Cliente cadastrado")
                         arquivos_para_enviar = lista_arquivos_com_foto(
                             arquivos_upload,
                             foto_camera_upload,
@@ -2014,20 +2014,20 @@ if perfil == "captador":
                                 enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
                                 enviados += 1
                             salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
-                    st.success("Lead salvo com sucesso!")
+                    st.success("Cliente salvo com sucesso!")
                 except Exception as e:
                     st.error(f"Erro ao salvar lead: {e}")
 
-    elif st.session_state.captador_pagina == "Minhas Captações":
-        abrir_card_mobile("Minhas Captações", "Filtre e acompanhe seus leads")
+    elif st.session_state.captador_pagina == "Minhas Clientes":
+        abrir_card_mobile("Minhas Clientes", "Filtre e acompanhe seus clientes")
         df = carregar_leads()
         if df.empty:
-            st.info("Nenhuma captação encontrada.")
+            st.info("Nenhuma clientes encontrada.")
         else:
             df = df[df["captador_id"].astype(str) == str(usuario["id"])]
             df = resumo_arquivos_para_leads(df)
             if df.empty:
-                st.info("Você ainda não possui leads cadastrados.")
+                st.info("Você ainda não possui clientes cadastrados.")
             else:
                 hoje = date.today()
                 st.markdown("#### 📈 Meu resumo")
@@ -2038,7 +2038,7 @@ if perfil == "captador":
                 atendimento_mes = int((df_mes["status_lead"] == "Em atendimento").sum()) if not df_mes.empty else 0
                 docs_abertos = int((df["documentos_enviados"] > df["documentos_baixados"]).sum())
                 c1, c2 = st.columns(2)
-                c1.metric("Leads no mês", total_mes)
+                c1.metric("Clientes no mês", total_mes)
                 c2.metric("Convertidos", conv_mes)
                 c3, c4 = st.columns(2)
                 c3.metric("Em atendimento", atendimento_mes)
@@ -2169,17 +2169,17 @@ if perfil == "captador":
         fechar_card_mobile()
 
     else:
-        abrir_card_mobile("Documentos", "Adicione documentos em leads já cadastrados")
+        abrir_card_mobile("Documentos", "Adicione documentos em clientes já cadastrados")
         df = carregar_leads()
         if df.empty:
-            st.info("Nenhuma captação encontrada.")
+            st.info("Nenhuma clientes encontrada.")
         else:
             df = df[df["captador_id"].astype(str) == str(usuario["id"])]
             if df.empty:
-                st.info("Você ainda não possui leads cadastrados.")
+                st.info("Você ainda não possui clientes cadastrados.")
             else:
                 df = resumo_arquivos_para_leads(df)
-                st.markdown("#### 🔎 Localizar lead")
+                st.markdown("#### 🔎 Localizar cliente")
                 situacao_docs = st.selectbox(
                     "Situação dos documentos",
                     ["Todos", "Com documentos não baixados", "Documentos baixados", "Sem documentos", "Com documentos"],
@@ -2206,7 +2206,7 @@ if perfil == "captador":
                     df_docs = df_docs[mask]
 
                 if df_docs.empty:
-                    st.warning("Nenhum lead encontrado com os filtros selecionados.")
+                    st.warning("Nenhum cliente encontrado com os filtros selecionados.")
                 else:
                     df_docs["label_doc"] = (
                         df_docs["nome_cliente"].fillna("") + " | " +
@@ -2215,14 +2215,14 @@ if perfil == "captador":
                         df_docs["documentos_enviados"].astype(str) + " enviados / 📥 " +
                         df_docs["documentos_baixados"].astype(str) + " baixados"
                     )
-                    lead_label = st.selectbox("Selecione o lead", df_docs["label_doc"].tolist())
+                    lead_label = st.selectbox("Selecione o cliente", df_docs["label_doc"].tolist())
                     lead = df_docs[df_docs["label_doc"] == lead_label].iloc[0]
 
                     st.write(f"**Cliente:** {lead.get('nome_cliente','')}")
                     st.write(f"**Status:** {lead.get('status_lead','Novo')}")
                     st.write(f"📎 **Enviados:** {int(lead.get('documentos_enviados',0))} | 📥 **Baixados:** {int(lead.get('documentos_baixados',0))}")
                     if int(lead.get('documentos_enviados',0)) == 0:
-                        st.info("Este lead ainda não possui documentos enviados.")
+                        st.info("Este cliente ainda não possui documentos enviados.")
                     elif int(lead.get('documentos_enviados',0)) == int(lead.get('documentos_baixados',0)):
                         st.success("Documentação recebida/baixada pela equipe.")
                     else:
@@ -2273,7 +2273,7 @@ st.sidebar.markdown(
             <span class="v-letter">V</span><span class="num-letter">360</span>
         </div>
         <div class="sidebar-cap">
-            CAPTAÇÃO
+            CLIENTES
         </div>
     </div>
     """,
@@ -2296,16 +2296,16 @@ if usuario.get("perfil") == "pendencia":
     }
 else:
     opcoes_base = {
-        "➕ Novo Lead": "Novo Lead",
-        "📋 Minhas Captações": "Minhas Captações",
+        "➕ Novo Cliente": "Novo Cliente",
+        "📋 Minhas Clientes": "Minhas Clientes",
     }
 
     if pode_ver_todos(usuario):
         opcoes_base.update({
             "📊 Dashboard Executivo": "Painel Gestor",
             "💡 Insights V360": "Insights V360",
-            "✏️ Atualizar Lead": "Atualizar Lead",
-            "🔁 Transferência de Leads": "Transferência de Leads",
+            "✏️ Atualizar Cliente": "Atualizar Cliente",
+            "🔁 Transferência de Clientes": "Transferência de Clientes",
             "📅 Agenda de Atendimentos": "Agenda de Atendimentos",
             "📌 Pendências": "Pendências",
             "⚙️ Cadastros": "Cadastros",
@@ -2325,8 +2325,8 @@ if st.sidebar.button("🚪 Sair"):
 # -------------------------------
 # NOVO LEAD DESKTOP
 # -------------------------------
-if pagina == "Novo Lead":
-    st.title("➕ Novo Lead")
+if pagina == "Novo Cliente":
+    st.title("➕ Novo Cliente")
     st.caption("O captador é preenchido automaticamente pelo usuário logado.")
 
     with st.form("form_novo_lead", clear_on_submit=True):
@@ -2341,10 +2341,10 @@ if pagina == "Novo Lead":
         with col2:
             locais_opcoes = listar_locais_captacao()
             if locais_opcoes:
-                local_sel = st.selectbox("Local da captação *", ["Outro / digitar"] + locais_opcoes)
+                local_sel = st.selectbox("Local da clientes *", ["Outro / digitar"] + locais_opcoes)
                 local_captacao = st.text_input("Digite o local" if local_sel == "Outro / digitar" else "Confirmar local", value="" if local_sel == "Outro / digitar" else local_sel, placeholder="Ex.: Feira, praça, INSS, ação social...")
             else:
-                local_captacao = st.text_input("Local da captação *", placeholder="Ex.: Feira, praça, INSS, ação social...")
+                local_captacao = st.text_input("Local da clientes *", placeholder="Ex.: Feira, praça, INSS, ação social...")
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
             observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
@@ -2352,7 +2352,7 @@ if pagina == "Novo Lead":
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_desktop")
             foto_camera_desktop_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_desktop", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
 
-        enviar = st.form_submit_button("Salvar Lead")
+        enviar = st.form_submit_button("Salvar Cliente")
 
     if enviar:
         cpf_limpo = limpar_cpf(cpf)
@@ -2390,7 +2390,7 @@ if pagina == "Novo Lead":
                 resp = salvar_lead(dados)
                 novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                 if novo_id:
-                    salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Lead criado")
+                    salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Cliente cadastrado")
                     arquivos_para_enviar = lista_arquivos_com_foto(
                         arquivos_upload,
                         foto_camera_desktop_upload,
@@ -2402,19 +2402,19 @@ if pagina == "Novo Lead":
                             enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
                             enviados += 1
                         salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
-                st.success("Lead salvo com sucesso!")
+                st.success("Cliente salvo com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao salvar lead: {e}")
 
 # -------------------------------
 # MINHAS CAPTAÇÕES
 # -------------------------------
-elif pagina == "Minhas Captações":
-    st.title("📋 Minhas Captações")
+elif pagina == "Minhas Clientes":
+    st.title("📋 Minhas Clientes")
     df = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df.empty:
-        st.info("Nenhuma captação encontrada.")
+        st.info("Nenhuma clientes encontrada.")
     else:
         if not pode_ver_todos(usuario):
             df = df[df["captador_id"].astype(str) == str(usuario["id"])]
@@ -2445,8 +2445,8 @@ elif pagina == "Minhas Captações":
 # PAINEL GESTOR - EXECUTIVO V360
 # -------------------------------
 elif pagina == "Painel Gestor":
-    st.title("📊 Dashboard Executivo V360 Captação")
-    st.caption("Visão executiva por unidade, captação, conversão, produtividade, bairros, locais e gargalos.")
+    st.title("📊 Dashboard Executivo V360 Clientes")
+    st.caption("Visão executiva por unidade, clientes, conversão, produtividade, bairros, locais e gargalos.")
 
     st.markdown(
         """
@@ -2486,7 +2486,7 @@ elif pagina == "Painel Gestor":
     df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df_original.empty:
-        st.info("Nenhum dado encontrado. Cadastre alguns leads de teste para visualizar o executivo.")
+        st.info("Nenhum dado encontrado. Cadastre alguns clientes de teste para visualizar o executivo.")
         st.stop()
 
     df = df_original.copy()
@@ -2558,7 +2558,7 @@ elif pagina == "Painel Gestor":
         df = df[df["local_captacao"].isin(local_filtro)]
 
     if df.empty:
-        st.warning("Nenhum lead encontrado com os filtros selecionados.")
+        st.warning("Nenhum cliente encontrado com os filtros selecionados.")
         st.stop()
 
     total = len(df)
@@ -2584,7 +2584,7 @@ elif pagina == "Painel Gestor":
     # 1 - CARDS EXECUTIVOS
     st.markdown("<div class='v360-section-title'>1. Cards Executivos</div>", unsafe_allow_html=True)
     c1, c2, c3, c4, c5 = st.columns(5)
-    with c1: card_exec("📍 Captados", total, "leads no período")
+    with c1: card_exec("📍 Clientes", total, "clientes no período")
     with c2: card_exec("📞 Em atendimento", atendimento, f"{novos} novos aguardando")
     with c3: card_exec("✅ Convertidos", convertidos, f"{conversao:.1f}% de conversão")
     with c4: card_exec("❌ Perdidos", perdidos, f"{perda_pct:.1f}% de perda")
@@ -2597,31 +2597,31 @@ elif pagina == "Painel Gestor":
         em_atendimento=("status_lead", lambda s: (s == "Em atendimento").sum()),
         perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
     ).reset_index()
-    ranking["conversao_%"] = (ranking["convertidos"] / ranking["leads"] * 100).round(1)
-    ranking = ranking.sort_values(["convertidos", "leads"], ascending=False)
+    ranking["conversao_%"] = (ranking["convertidos"] / ranking["clientes"] * 100).round(1)
+    ranking = ranking.sort_values(["convertidos", "clientes"], ascending=False)
 
     bairros = df.groupby("bairro").agg(
         leads=("id", "count"),
         convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
         perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
     ).reset_index()
-    bairros["conversao_%"] = (bairros["convertidos"] / bairros["leads"] * 100).round(1)
-    bairros = bairros.sort_values("leads", ascending=False)
+    bairros["conversao_%"] = (bairros["convertidos"] / bairros["clientes"] * 100).round(1)
+    bairros = bairros.sort_values("clientes", ascending=False)
 
     locais = df.groupby("local_captacao").agg(
         leads=("id", "count"),
         convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
         perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
     ).reset_index()
-    locais["conversao_%"] = (locais["convertidos"] / locais["leads"] * 100).round(1)
-    locais = locais.sort_values("leads", ascending=False)
+    locais["conversao_%"] = (locais["convertidos"] / locais["clientes"] * 100).round(1)
+    locais = locais.sort_values("clientes", ascending=False)
 
     # 2 e 3
     col1, col2 = st.columns([1, 1])
     with col1:
         st.markdown("<div class='v360-section-title'>2. Funil de Conversão</div>", unsafe_allow_html=True)
         funil_df = pd.DataFrame({
-            "Etapa": ["Captados", "Novos", "Em atendimento", "Convertidos", "Perdidos"],
+            "Etapa": ["Clientes", "Novos", "Em atendimento", "Convertidos", "Perdidos"],
             "Quantidade": [total, novos, atendimento, convertidos, perdidos],
         })
         fig = px.funnel(funil_df, x="Quantidade", y="Etapa", text="Quantidade")
@@ -2631,8 +2631,8 @@ elif pagina == "Painel Gestor":
         st.markdown("<div class='v360-section-title'>3. Evolução Diária</div>", unsafe_allow_html=True)
         df_dia = df.copy()
         df_dia["dia"] = df_dia["data_captacao"].dt.date
-        diario = df_dia.groupby("dia").size().reset_index(name="Leads")
-        fig = px.line(diario, x="dia", y="Leads", markers=True)
+        diario = df_dia.groupby("dia").size().reset_index(name="Clientes")
+        fig = px.line(diario, x="dia", y="Clientes", markers=True)
         fig.update_layout(height=390, margin=dict(l=10, r=10, t=30, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
@@ -2640,17 +2640,17 @@ elif pagina == "Painel Gestor":
     st.markdown("<div class='v360-section-title'>4. Ranking de Captadores</div>", unsafe_allow_html=True)
     col3, col4 = st.columns([1.15, .85])
     with col3:
-        fig = px.bar(ranking.head(10), x="leads", y="captador_nome", orientation="h", text="leads", title="Ranking por volume de leads")
+        fig = px.bar(ranking.head(10), x="clientes", y="captador_nome", orientation="h", text="clientes", title="Ranking por volume de clientes")
         fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=50, b=10))
         st.plotly_chart(fig, use_container_width=True)
     with col4:
         st.dataframe(ranking.rename(columns={
-            "captador_nome": "Captador", "leads": "Leads", "convertidos": "Convertidos",
+            "captador_nome": "Captador", "clientes": "Clientes", "convertidos": "Convertidos",
             "em_atendimento": "Em atendimento", "perdidos": "Perdidos", "conversao_%": "Conversão %"
         }), use_container_width=True, hide_index=True)
 
     # 5 - Benefícios
-    st.markdown("<div class='v360-section-title'>5. Benefícios Mais Captados</div>", unsafe_allow_html=True)
+    st.markdown("<div class='v360-section-title'>5. Benefícios Mais Clientes</div>", unsafe_allow_html=True)
     beneficio_df = df["tipo_beneficio"].value_counts().reset_index().head(12)
     beneficio_df.columns = ["Benefício", "Quantidade"]
     fig = px.bar(beneficio_df, x="Quantidade", y="Benefício", orientation="h", text="Quantidade")
@@ -2660,37 +2660,37 @@ elif pagina == "Painel Gestor":
     # 6 e 7 - Bairros
     col5, col6 = st.columns(2)
     with col5:
-        st.markdown("<div class='v360-section-title'>6. Bairros com Mais Captação</div>", unsafe_allow_html=True)
-        fig = px.bar(bairros.head(15), x="leads", y="bairro", orientation="h", text="leads")
+        st.markdown("<div class='v360-section-title'>6. Bairros com Mais Clientes</div>", unsafe_allow_html=True)
+        fig = px.bar(bairros.head(15), x="clientes", y="bairro", orientation="h", text="clientes")
         fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=30, b=10))
         st.plotly_chart(fig, use_container_width=True)
     with col6:
         st.markdown("<div class='v360-section-title'>7. Bairros com Maior Conversão</div>", unsafe_allow_html=True)
-        bairros_conv = bairros[bairros["leads"] >= 3].copy()
+        bairros_conv = bairros[bairros["clientes"] >= 3].copy()
         if bairros_conv.empty:
-            st.info("Ainda não há volume suficiente por bairro. Mínimo: 3 leads por bairro.")
+            st.info("Ainda não há volume suficiente por bairro. Mínimo: 3 clientes por bairro.")
         else:
-            bairros_conv = bairros_conv.sort_values(["conversao_%", "convertidos", "leads"], ascending=False).head(15)
+            bairros_conv = bairros_conv.sort_values(["conversao_%", "convertidos", "clientes"], ascending=False).head(15)
             fig = px.bar(bairros_conv, x="conversao_%", y="bairro", orientation="h", text="conversao_%")
             fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=30, b=10))
             st.plotly_chart(fig, use_container_width=True)
-            st.dataframe(bairros_conv.rename(columns={"bairro":"Bairro", "leads":"Leads", "convertidos":"Convertidos", "perdidos":"Perdidos", "conversao_%":"Conversão %"}), use_container_width=True, hide_index=True)
+            st.dataframe(bairros_conv.rename(columns={"bairro":"Bairro", "clientes":"Clientes", "convertidos":"Convertidos", "perdidos":"Perdidos", "conversao_%":"Conversão %"}), use_container_width=True, hide_index=True)
 
     # 8 - Locais captação
-    st.markdown("<div class='v360-section-title'>8. Locais de Captação</div>", unsafe_allow_html=True)
+    st.markdown("<div class='v360-section-title'>8. Locais de Clientes</div>", unsafe_allow_html=True)
     col7, col8 = st.columns(2)
     with col7:
-        fig = px.bar(locais.head(15), x="leads", y="local_captacao", orientation="h", text="leads", title="Locais com mais leads")
+        fig = px.bar(locais.head(15), x="clientes", y="local_captacao", orientation="h", text="clientes", title="Locais com mais clientes")
         fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=430, margin=dict(l=10, r=10, t=50, b=10))
         st.plotly_chart(fig, use_container_width=True)
     with col8:
-        locais_conv = locais[locais["leads"] >= 3].copy()
+        locais_conv = locais[locais["clientes"] >= 3].copy()
         if locais_conv.empty:
-            st.info("Ainda não há volume suficiente por local. Mínimo: 3 leads por local.")
+            st.info("Ainda não há volume suficiente por local. Mínimo: 3 clientes por local.")
         else:
-            locais_conv = locais_conv.sort_values(["conversao_%", "convertidos", "leads"], ascending=False).head(15)
+            locais_conv = locais_conv.sort_values(["conversao_%", "convertidos", "clientes"], ascending=False).head(15)
             st.dataframe(locais_conv.rename(columns={
-                "local_captacao":"Local", "leads":"Leads", "convertidos":"Convertidos",
+                "local_captacao":"Local", "clientes":"Clientes", "convertidos":"Convertidos",
                 "perdidos":"Perdidos", "conversao_%":"Conversão %"
             }), use_container_width=True, hide_index=True)
 
@@ -2698,7 +2698,7 @@ elif pagina == "Painel Gestor":
     st.markdown("<div class='v360-section-title'>9. Motivos de Perda</div>", unsafe_allow_html=True)
     perdas = df[df["status_lead"] == "Perdido"].copy()
     if perdas.empty:
-        st.info("Nenhum lead perdido no período selecionado.")
+        st.info("Nenhum cliente perdido no período selecionado.")
     else:
         perdas_df = perdas["motivo_perda"].fillna("Não informado").replace("", "Não informado").value_counts().reset_index()
         perdas_df.columns = ["Motivo", "Quantidade"]
@@ -2723,7 +2723,7 @@ elif pagina == "Painel Gestor":
 # -------------------------------
 elif pagina == "Insights V360":
     st.title("💡 Insights V360")
-    st.caption("Inteligência comercial por unidade, oportunidades e alertas da captação.")
+    st.caption("Inteligência comercial por unidade, oportunidades e alertas da clientes.")
 
     st.markdown(
         """
@@ -2771,7 +2771,7 @@ elif pagina == "Insights V360":
 
     df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
     if df_original.empty:
-        st.info("Nenhum dado encontrado. Cadastre alguns leads para gerar os insights.")
+        st.info("Nenhum dado encontrado. Cadastre alguns clientes para gerar os insights.")
         st.stop()
 
     df = df_original.copy()
@@ -2830,7 +2830,7 @@ elif pagina == "Insights V360":
         df = df[df["local_captacao"].isin(local_filtro)]
 
     if df.empty:
-        st.warning("Nenhum lead encontrado com os filtros selecionados.")
+        st.warning("Nenhum cliente encontrado com os filtros selecionados.")
         st.stop()
 
     total = len(df)
@@ -2855,9 +2855,9 @@ elif pagina == "Insights V360":
         ).reset_index()
         if base.empty:
             return base
-        base["conversao_%"] = (base["convertidos"] / base["leads"] * 100).round(1)
-        base = base[base["leads"] >= minimo]
-        return base.sort_values(["conversao_%", "convertidos", "leads"], ascending=False)
+        base["conversao_%"] = (base["convertidos"] / base["clientes"] * 100).round(1)
+        base = base[base["clientes"] >= minimo]
+        return base.sort_values(["conversao_%", "convertidos", "clientes"], ascending=False)
 
     def card_insight(titulo, valor, subtitulo=""):
         # Importante: retornar HTML sem espaços iniciais.
@@ -2887,7 +2887,7 @@ elif pagina == "Insights V360":
     st.markdown("## 📌 Resumo Executivo")
     st.markdown(
         "<div class='insights-grid'>" +
-        card_insight("🏆 Bairro líder em captação", top_bairro, f"{top_bairro_qtd} leads • {top_bairro_pct:.1f}% do período") +
+        card_insight("🏆 Bairro líder em clientes", top_bairro, f"{top_bairro_qtd} leads • {top_bairro_pct:.1f}% do período") +
         card_insight("🥇 Captador destaque", top_captador, f"{top_captador_qtd} leads • {top_captador_pct:.1f}% do período") +
         card_insight("📋 Benefício mais procurado", top_beneficio, f"{top_beneficio_qtd} leads • {top_beneficio_pct:.1f}% do período") +
         card_insight("🏪 Local mais produtivo", top_local, f"{top_local_qtd} leads • {top_local_pct:.1f}% do período") +
@@ -2905,13 +2905,13 @@ elif pagina == "Insights V360":
     def melhor_bairro_beneficio(texto_beneficio):
         sub = df[df["tipo_beneficio"].str.contains(texto_beneficio, case=False, na=False)].copy()
         if sub.empty:
-            return "Sem dados", "Nenhum lead encontrado"
+            return "Sem dados", "Nenhum cliente encontrado"
         sub_conv = sub[sub["status_lead"] == "Convertido"]
         base = sub_conv if not sub_conv.empty else sub
         vc = base["bairro"].value_counts()
         nome = vc.index[0]
         qtd = int(vc.iloc[0])
-        label = "contratos" if not sub_conv.empty else "leads"
+        label = "contratos" if not sub_conv.empty else "clientes"
         return nome, f"{qtd} {label} de {texto_beneficio}"
 
     bairro_loas, sub_loas = melhor_bairro_beneficio("LOAS")
@@ -2941,9 +2941,9 @@ elif pagina == "Insights V360":
 
     def top_conv(base, campo, nome_vazio="Sem dados"):
         if base.empty:
-            return nome_vazio, "Volume mínimo: 3 leads"
+            return nome_vazio, "Volume mínimo: 3 clientes"
         linha = base.iloc[0]
-        return linha[campo], f"{linha['conversao_%']:.1f}% • {int(linha['convertidos'])}/{int(linha['leads'])} convertidos"
+        return linha[campo], f"{linha['conversao_%']:.1f}% • {int(linha['convertidos'])}/{int(linha['clientes'])} convertidos"
 
     local_tx, local_tx_sub = top_conv(locais_conv, "local_captacao")
     bairro_tx, bairro_tx_sub = top_conv(bairros_conv, "bairro")
@@ -2954,7 +2954,7 @@ elif pagina == "Insights V360":
         "<div class='insights-grid'>" +
         card_insight("📈 Melhor bairro para LOAS", bairro_loas, sub_loas) +
         card_insight("📈 Melhor bairro para Auxílio Doença", bairro_aux, sub_aux) +
-        card_insight("📈 Melhor dia da semana para captação", melhor_dia, f"{melhor_dia_qtd} leads no período") +
+        card_insight("📈 Melhor dia da semana para clientes", melhor_dia, f"{melhor_dia_qtd} leads no período") +
         card_insight("📈 Melhor captador do mês", melhor_captador_mes, melhor_captador_mes_sub) +
         card_insight("📈 Local com maior taxa de conversão", local_tx, local_tx_sub) +
         card_insight("📈 Bairro com maior conversão geral", bairro_tx, bairro_tx_sub) +
@@ -2967,7 +2967,7 @@ elif pagina == "Insights V360":
     st.markdown("## 🎯 Oportunidades")
     oportunidades = []
     if not bairros_conv.empty:
-        bairros_volume = df.groupby("bairro").size().reset_index(name="leads").sort_values("leads", ascending=False)
+        bairros_volume = df.groupby("bairro").size().reset_index(name="clientes").sort_values("clientes", ascending=False)
         top_vol_bairro = bairros_volume.iloc[0]
         conv_top_vol = bairros_conv[bairros_conv["bairro"] == top_vol_bairro["bairro"]]
         if not conv_top_vol.empty and float(conv_top_vol.iloc[0]["conversao_%"]) < conversao:
@@ -2985,7 +2985,7 @@ elif pagina == "Insights V360":
             f"<b>{linha['tipo_beneficio']}</b> é o benefício com melhor conversão ({linha['conversao_%']:.1f}%). Pode ser prioridade em campanhas e roteiros de captação."
         )
     if not oportunidades:
-        oportunidades.append("Ainda não há volume suficiente para oportunidades avançadas. Continue cadastrando leads para o V360 identificar padrões.")
+        oportunidades.append("Ainda não há volume suficiente para oportunidades avançadas. Continue cadastrando clientes para o V360 identificar padrões.")
     for item in oportunidades:
         st.markdown(f"<div class='op-card'>🎯 {item}</div>", unsafe_allow_html=True)
 
@@ -3175,14 +3175,14 @@ elif pagina == "Agenda de Atendimentos":
 # -------------------------------
 # TRANSFERÊNCIA DE LEADS
 # -------------------------------
-elif pagina == "Transferência de Leads":
-    st.title("🔁 Transferência de Leads")
-    st.caption("Transfira um ou vários leads para outro captador, com registro no histórico.")
+elif pagina == "Transferência de Clientes":
+    st.title("🔁 Transferência de Clientes")
+    st.caption("Transfira um ou vários clientes para outro captador, com registro no histórico.")
 
     df_transferencia = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df_transferencia.empty:
-        st.info("Nenhum lead disponível no seu escopo.")
+        st.info("Nenhum cliente disponível no seu escopo.")
         st.stop()
 
     for col in [
@@ -3216,7 +3216,7 @@ elif pagina == "Transferência de Leads":
         st.warning("Nenhum captador ativo disponível dentro do seu escopo.")
         st.stop()
 
-    st.markdown("### 1. Filtrar leads")
+    st.markdown("### 1. Filtrar clientes")
     f1, f2, f3, f4 = st.columns(4)
 
     with f1:
@@ -3334,7 +3334,7 @@ elif pagina == "Transferência de Leads":
     st.caption(f"{len(df_filtrado)} lead(s) encontrado(s).")
 
     if df_filtrado.empty:
-        st.warning("Nenhum lead encontrado com os filtros selecionados.")
+        st.warning("Nenhum cliente encontrado com os filtros selecionados.")
         st.stop()
 
     df_filtrado = df_filtrado.copy()
@@ -3352,7 +3352,7 @@ elif pagina == "Transferência de Leads":
         "data_captacao",
     ]
 
-    st.markdown("### 2. Selecionar leads")
+    st.markdown("### 2. Selecionar clientes")
     df_editado = st.data_editor(
         preparar_dataframe_exibicao(df_filtrado[colunas_editor]),
         use_container_width=True,
@@ -3370,7 +3370,7 @@ elif pagina == "Transferência de Leads":
         column_config={
             "Selecionar": st.column_config.CheckboxColumn(
                 "Selecionar",
-                help="Marque os leads que deseja transferir.",
+                help="Marque os clientes que deseja transferir.",
                 default=False,
             ),
             "nome_cliente": "Cliente",
@@ -3380,7 +3380,7 @@ elif pagina == "Transferência de Leads":
             "bairro": "Bairro",
             "captador_nome": "Captador atual",
             "status_lead": "Status",
-            "data_captacao": "Data da captação",
+            "data_captacao": "Data da clientes",
         },
         key="transf_editor_leads",
     )
@@ -3411,12 +3411,12 @@ elif pagina == "Transferência de Leads":
     )
 
     confirmar_transferencia = st.checkbox(
-        "Confirmo que desejo transferir os leads selecionados.",
+        "Confirmo que desejo transferir os clientes selecionados.",
         key="transf_confirmacao",
     )
 
     if st.button(
-        "🔁 Transferir leads selecionados",
+        "🔁 Transferir clientes selecionados",
         type="primary",
         disabled=not lead_ids_selecionados,
     ):
@@ -3459,7 +3459,7 @@ elif pagina == "Pendências":
     with tab_criar:
         st.subheader("Abrir nova pendência")
         if df_leads_all.empty:
-            st.info("Nenhum lead disponível no seu escopo para abrir pendência.")
+            st.info("Nenhum cliente disponível no seu escopo para abrir pendência.")
         else:
             df_select = df_leads_all.copy()
             for col in ["nome_cliente", "cpf", "telefone", "cidade", "bairro", "captador_nome", "status_lead", "local_captacao", "unidade"]:
@@ -3477,7 +3477,7 @@ elif pagina == "Pendências":
                 )
             with col_busca2:
                 status_opcoes = sorted([x for x in df_select["status_lead"].dropna().unique().tolist() if x])
-                filtro_status_lead = st.selectbox("Status do lead", ["Todos"] + status_opcoes, key="pend_status_lead")
+                filtro_status_lead = st.selectbox("Status do cliente", ["Todos"] + status_opcoes, key="pend_status_lead")
             with col_busca3:
                 bairro_opcoes = sorted([x for x in df_select["bairro"].dropna().unique().tolist() if x])
                 filtro_bairro_lead = st.selectbox("Bairro", ["Todos"] + bairro_opcoes, key="pend_bairro_lead")
@@ -3515,7 +3515,7 @@ elif pagina == "Pendências":
             df_select = df_select.sort_values("data_captacao", ascending=False) if "data_captacao" in df_select.columns else df_select
             df_select["label_lead"] = df_select.apply(label_lead, axis=1)
             with st.form("form_criar_pendencia"):
-                lead_label = st.selectbox("Cliente / Lead", df_select["label_lead"].tolist())
+                lead_label = st.selectbox("Cliente / Cliente", df_select["label_lead"].tolist())
                 lead = df_select[df_select["label_lead"] == lead_label].iloc[0]
                 colp1, colp2 = st.columns(2)
                 with colp1:
@@ -3758,13 +3758,13 @@ elif pagina == "Pendências":
 # -------------------------------
 # ATUALIZAR LEAD - V2
 # -------------------------------
-elif pagina == "Atualizar Lead":
-    st.title("✏️ Atualizar Lead")
-    st.caption("Busque o lead, atualize o funil e registre o histórico do atendimento.")
+elif pagina == "Atualizar Cliente":
+    st.title("✏️ Atualizar Cliente")
+    st.caption("Busque o cliente, atualize o funil e registre o histórico do atendimento.")
     df = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df.empty:
-        st.info("Nenhum lead encontrado.")
+        st.info("Nenhum cliente encontrado.")
         st.stop()
 
     termo = st.text_input("Pesquisar por nome, CPF, telefone ou captador", placeholder="Digite parte do nome, CPF, telefone ou captador...")
@@ -3779,7 +3779,7 @@ elif pagina == "Atualizar Lead":
         df_busca = df_busca[mask]
 
     if df_busca.empty:
-        st.warning("Nenhum lead encontrado para essa busca.")
+        st.warning("Nenhum cliente encontrado para essa busca.")
         st.stop()
 
     df_busca["label"] = (
@@ -3788,11 +3788,11 @@ elif pagina == "Atualizar Lead":
         df_busca["bairro"].fillna("") + " | " +
         df_busca["status_lead"].fillna("")
     )
-    lead_label = st.selectbox("Selecione o lead", df_busca["label"].tolist())
+    lead_label = st.selectbox("Selecione o cliente", df_busca["label"].tolist())
     lead = df_busca[df_busca["label"] == lead_label].iloc[0]
     lead_id = str(lead["id"])
 
-    st.markdown("### Ficha do Lead")
+    st.markdown("### Ficha do Cliente")
     c1, c2, c3 = st.columns(3)
     c1.metric("Cliente", lead.get("nome_cliente", ""))
     c2.metric("Status", lead.get("status_lead", "Novo"))
@@ -3820,7 +3820,7 @@ elif pagina == "Atualizar Lead":
         with col1:
             status_atual = lead.get("status_lead", "Novo")
             status_idx = STATUS_LEAD.index(status_atual) if status_atual in STATUS_LEAD else 0
-            status = st.selectbox("Status do Lead", STATUS_LEAD, index=status_idx)
+            status = st.selectbox("Status do Cliente", STATUS_LEAD, index=status_idx)
 
             usuarios = listar_usuarios_ativos()
             nomes_usuarios = [u["nome"] for u in usuarios]
@@ -3850,7 +3850,7 @@ elif pagina == "Atualizar Lead":
             idx_motivo = MOTIVOS_PERDA.index(motivo_atual) if motivo_atual in MOTIVOS_PERDA else 0
             motivo_perda = st.selectbox("Motivo da perda", MOTIVOS_PERDA, index=idx_motivo)
             observacao_atual = lead.get("observacao") or ""
-            observacao_principal = st.text_area("Observação principal do lead", value=observacao_atual)
+            observacao_principal = st.text_area("Observação principal do cliente", value=observacao_atual)
             modalidade_agenda = st.selectbox("Modalidade do atendimento", MODALIDADES_AGENDAMENTO)
             local_agenda = st.text_input("Local ou link do atendimento")
             observacao_agenda = st.text_area("Observação do agendamento")
@@ -3943,15 +3943,15 @@ elif pagina == "Atualizar Lead":
                         "Atualização de atendimento",
                     )
 
-                st.success("Lead atualizado com sucesso!")
+                st.success("Cliente atualizado com sucesso!")
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao atualizar lead: {e}")
 
-    st.markdown("### Histórico do Lead")
+    st.markdown("### Histórico do Cliente")
     hist = carregar_historico(lead_id)
     if hist.empty:
-        st.info("Nenhum histórico registrado para este lead.")
+        st.info("Nenhum histórico registrado para este cliente.")
     else:
         hist_exibir = hist.copy()
         if "criado_em" in hist_exibir.columns:
@@ -3965,9 +3965,9 @@ elif pagina == "Atualizar Lead":
 # -------------------------------
 elif pagina == "Cadastros":
     st.title("⚙️ Cadastros")
-    st.caption("Cadastre benefícios, locais de captação, tipos de arquivos e unidades sem precisar alterar o código.")
+    st.caption("Cadastre benefícios, locais de clientes, tipos de arquivos e unidades sem precisar alterar o código.")
 
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Benefícios", "Locais de Captação", "Tipos de Arquivo", "Tipos de Pendência", "Unidades", "Cidades", "Bairros por cidade"])
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Benefícios", "Locais de Clientes", "Tipos de Arquivo", "Tipos de Pendência", "Unidades", "Cidades", "Bairros por cidade"])
     with tab1:
         st.subheader("Benefícios")
         with st.form("form_novo_beneficio"):
@@ -3986,7 +3986,7 @@ elif pagina == "Cadastros":
         st.dataframe(pd.DataFrame({"Benefícios ativos": listar_beneficios()}), use_container_width=True, hide_index=True)
 
     with tab2:
-        st.subheader("Locais de Captação")
+        st.subheader("Locais de Clientes")
         with st.form("form_novo_local"):
             nome_local = st.text_input("Novo local", placeholder="Ex.: Feira do Nova Cidade")
             salvar_local = st.form_submit_button("Adicionar local")
@@ -4230,7 +4230,7 @@ elif pagina == "Usuários":
                         unidades_opts,
                         default=unidades_opts[:1] if unidades_opts else [],
                         key="criar_unidades",
-                        help="Captador vê seus próprios leads. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
+                        help="Captador vê seus próprios clientes. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
                     )
                     cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
                     cidades_usuario = st.multiselect(
