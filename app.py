@@ -11,7 +11,7 @@ import streamlit as st
 from supabase import create_client, Client
 
 # =====================================================
-# V360 CAPTAÇÃO - MOLINA ADVOGADOS / BOA VISTA
+# V360 CLIENTES - MOLINA ADVOGADOS / BOA VISTA
 # Streamlit + Supabase
 # =====================================================
 
@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-clientes-agenda"
+VERSAO_APP = "producao-v360-clientes-atendentes"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -571,7 +571,7 @@ def header_mobile():
             <div class="brand-line">
                 <div>
                     <div class="v360-title"><span style="color:#18BDF2">V</span>360</div>
-                    <div class="v360-sub">CAPTAÇÃO</div>
+                    <div class="v360-sub">CLIENTES</div>
                 </div>
                 <div class="molina-logo-wrap">{logo_html}</div>
             </div>
@@ -618,7 +618,7 @@ def header_desktop(usuario):
         f"""
         <div style="background:linear-gradient(90deg,#061A33,#09294D); padding:18px 24px; border-radius:18px; margin-bottom:22px; display:flex; align-items:center; justify-content:space-between; color:white;">
             <div>
-                <div style="font-size:30px;font-weight:900;"><span style="color:#18BDF2">V</span>360 Captação</div>
+                <div style="font-size:30px;font-weight:900;"><span style="color:#18BDF2">V</span>360 Clientes</div>
                 <div style="color:#B8D9EF;">Boa Vista • Usuário: {usuario['nome']}</div>
             </div>
             {logo_html}
@@ -1435,12 +1435,12 @@ def transferir_leads_em_lote(
     motivo: str = "",
 ):
     """
-    Transfere clientes em lote para outro captador e registra histórico individual.
+    Transfere clientes em lote para outro atendente e registra histórico individual.
     """
     if not lead_ids:
         raise ValueError("Nenhum cliente selecionado.")
     if not novo_captador or not novo_captador.get("id"):
-        raise ValueError("Novo captador inválido.")
+        raise ValueError("Novo atendente inválido.")
 
     dados_update = {
         "captador_id": str(novo_captador.get("id")),
@@ -1810,6 +1810,21 @@ def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cl
         st.error(f"Erro ao preparar ZIP dos documentos: {e}")
 
 
+
+def rotulo_perfil_usuario(perfil: str) -> str:
+    mapa = {
+        "atendente": "atendente",
+        "pendencia": "pendência",
+        "supervisor": "supervisor",
+        "gestor_unidade": "gestor_unidade",
+        "gestor_regional": "gestor_regional",
+        "gestor_geral": "gestor_geral",
+        "gestor": "gestor",
+        "advogado": "advogado",
+    }
+    return mapa.get(str(perfil or "").lower(), str(perfil or ""))
+
+
 def pode_ver_todos(usuario: dict) -> bool:
     return usuario.get("perfil") in ["gestor", "supervisor", "gestor_geral", "gestor_regional", "gestor_unidade"]
 
@@ -1827,7 +1842,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
 
     if perfil == "gestor_geral":
         return [
-            "captador",
+            "atendente",
             "pendencia",
             "supervisor",
             "gestor_unidade",
@@ -1837,7 +1852,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
 
     if perfil == "gestor_regional":
         return [
-            "captador",
+            "atendente",
             "pendencia",
             "supervisor",
             "gestor_unidade",
@@ -1890,8 +1905,8 @@ def filtrar_usuarios_por_escopo_admin(usuarios: list[dict], admin: dict) -> list
 # -------------------------------
 if "usuario" not in st.session_state:
     st.session_state.usuario = None
-if "captador_pagina" not in st.session_state:
-    st.session_state.captador_pagina = "Novo Cliente"
+if "atendente_pagina" not in st.session_state:
+    st.session_state.atendente_pagina = "Novo Cliente"
 
 if st.session_state.usuario is None:
     aplicar_css_mobile()
@@ -1920,29 +1935,29 @@ perfil = usuario.get("perfil")
 # -------------------------------
 # ROTAS DO CAPTADOR - ESTILO CELULAR
 # -------------------------------
-if perfil == "captador":
+if perfil == "atendente":
     aplicar_css_mobile()
     header_mobile()
 
-    opcoes_captador = ["➕ Novo Cliente", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
-    mapa_captador = {"➕ Novo Cliente": "Novo Cliente", "📋 Minhas": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
-    pagina_atual_label = next((k for k, v in mapa_captador.items() if v == st.session_state.captador_pagina), "➕ Novo Cliente")
+    opcoes_atendente = ["➕ Novo Cliente", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
+    mapa_atendente = {"➕ Novo Cliente": "Novo Cliente", "📋 Minhas": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
+    pagina_atual_label = next((k for k, v in mapa_atendente.items() if v == st.session_state.atendente_pagina), "➕ Novo Cliente")
     st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
     nav_escolhida = st.radio(
         "Navegação",
-        opcoes_captador,
-        index=opcoes_captador.index(pagina_atual_label),
+        opcoes_atendente,
+        index=opcoes_atendente.index(pagina_atual_label),
         horizontal=True,
         label_visibility="collapsed",
-        key="captador_nav_radio",
+        key="atendente_nav_radio",
     )
     st.markdown("</div>", unsafe_allow_html=True)
-    nova_pagina = mapa_captador[nav_escolhida]
-    if nova_pagina != st.session_state.captador_pagina:
-        st.session_state.captador_pagina = nova_pagina
+    nova_pagina = mapa_atendente[nav_escolhida]
+    if nova_pagina != st.session_state.atendente_pagina:
+        st.session_state.atendente_pagina = nova_pagina
         st.rerun()
 
-    if st.session_state.captador_pagina == "Novo Cliente":
+    if st.session_state.atendente_pagina == "Novo Cliente":
         abrir_card_mobile("Novo Cliente", "Preencha os dados do cliente")
         with st.form("form_novo_lead_mobile", clear_on_submit=True):
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
@@ -1964,7 +1979,7 @@ if perfil == "captador":
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
             foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
             enviar = st.form_submit_button("💾 SALVAR CLIENTE")
-            st.markdown("<div class='mobile-note'>🔒 Captador identificado automaticamente</div>", unsafe_allow_html=True)
+            st.markdown("<div class='mobile-note'>🔒 Atendente identificado automaticamente</div>", unsafe_allow_html=True)
         fechar_card_mobile()
 
         if enviar:
@@ -1979,7 +1994,7 @@ if perfil == "captador":
             elif duplicado:
                 st.warning(
                     f"⚠️ Cliente já cadastrado: {duplicado.get('nome_cliente','')} | "
-                    f"Captador: {duplicado.get('captador_nome','')} | "
+                    f"Atendente: {duplicado.get('captador_nome','')} | "
                     f"Status: {duplicado.get('status_lead','')}"
                 )
             else:
@@ -2018,7 +2033,7 @@ if perfil == "captador":
                 except Exception as e:
                     st.error(f"Erro ao salvar lead: {e}")
 
-    elif st.session_state.captador_pagina == "Minhas Clientes":
+    elif st.session_state.atendente_pagina == "Minhas Clientes":
         abrir_card_mobile("Minhas Clientes", "Filtre e acompanhe seus clientes")
         df = carregar_leads()
         if df.empty:
@@ -2092,7 +2107,7 @@ if perfil == "captador":
                 st.dataframe(preparar_dataframe_exibicao(df_filtrado[colunas]), use_container_width=True, hide_index=True)
         fechar_card_mobile()
 
-    elif st.session_state.captador_pagina == "Pendências":
+    elif st.session_state.atendente_pagina == "Pendências":
         abrir_card_mobile("Pendências", "Documentos solicitados pela unidade")
         dfp = carregar_pendencias()
         dfp = filtrar_pendencias_por_escopo(dfp, usuario)
@@ -2101,9 +2116,9 @@ if perfil == "captador":
             st.info("Nenhuma pendência documental para você no momento.")
         else:
             st.markdown("#### 🔎 Filtros")
-            busca_pend = st.text_input("Buscar por cliente, CPF ou descrição", key="pend_busca_captador")
-            status_pend = st.multiselect("Status", STATUS_PENDENCIA, default=["Aberta", "Em andamento"], key="pend_status_captador")
-            docs_pend = st.selectbox("Situação dos documentos", ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"], key="pend_docs_captador")
+            busca_pend = st.text_input("Buscar por cliente, CPF ou descrição", key="pend_busca_atendente")
+            status_pend = st.multiselect("Status", STATUS_PENDENCIA, default=["Aberta", "Em andamento"], key="pend_status_atendente")
+            docs_pend = st.selectbox("Situação dos documentos", ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"], key="pend_docs_atendente")
 
             dfp_f = dfp.copy()
             if status_pend:
@@ -2127,7 +2142,7 @@ if perfil == "captador":
                     dfp_f["documentos_enviados"].astype(str) + " / 📥 " +
                     dfp_f["documentos_baixados"].astype(str)
                 )
-                pend_label = st.selectbox("Selecione a pendência", dfp_f["label"].tolist(), key="pend_select_captador")
+                pend_label = st.selectbox("Selecione a pendência", dfp_f["label"].tolist(), key="pend_select_atendente")
                 pend = dfp_f[dfp_f["label"] == pend_label].iloc[0]
                 st.write(f"**Cliente:** {pend.get('cliente_nome','')}")
                 st.write(f"**Tipo:** {pend.get('tipo_pendencia','')}")
@@ -2135,12 +2150,12 @@ if perfil == "captador":
                 st.write(f"**Prioridade:** {pend.get('prioridade','Normal')} | **Status:** {pend.get('status','Aberta')}")
                 st.write(f"📎 **Enviados:** {int(pend.get('documentos_enviados',0))} | 📥 **Baixados:** {int(pend.get('documentos_baixados',0))}")
 
-                with st.form("form_docs_pend_captador", clear_on_submit=True):
+                with st.form("form_docs_pend_atendente", clear_on_submit=True):
                     novo_status_p = st.selectbox("Atualizar status da pendência", STATUS_PENDENCIA, index=STATUS_PENDENCIA.index(pend.get("status", "Aberta")) if pend.get("status", "Aberta") in STATUS_PENDENCIA else 0)
                     obs_p = st.text_area("Observação", placeholder="Ex.: Cliente entregou laudo atualizado")
-                    tipo_doc_p = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_pend_captador")
-                    arquivos_p = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_pend_captador")
-                    foto_p_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_pend_captador", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
+                    tipo_doc_p = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_pend_atendente")
+                    arquivos_p = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_pend_atendente")
+                    foto_p_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_pend_atendente", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
                     salvar_p = st.form_submit_button("📎 ENVIAR / ATUALIZAR")
                 if salvar_p:
                     try:
@@ -2228,7 +2243,7 @@ if perfil == "captador":
                     else:
                         st.warning("Ainda há documentos aguardando download pela equipe.")
 
-                    with st.form("form_add_docs_captador", clear_on_submit=True):
+                    with st.form("form_add_docs_atendente", clear_on_submit=True):
                         tipo_documento_extra = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_extra_mobile")
                         arquivos_extra = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_extra_mobile")
                         foto_extra_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_extra_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
@@ -2248,7 +2263,7 @@ if perfil == "captador":
                                 for arquivo in arquivos_extra_enviar:
                                     enviar_arquivo_temporario(str(lead["id"]), arquivo, tipo_documento_extra, usuario)
                                     enviados += 1
-                                salvar_historico(str(lead["id"]), usuario["nome"], lead.get("status_lead", "Novo"), f"{enviados} novo(s) arquivo(s) anexado(s) pelo captador.", "Arquivos anexados")
+                                salvar_historico(str(lead["id"]), usuario["nome"], lead.get("status_lead", "Novo"), f"{enviados} novo(s) arquivo(s) anexado(s) pelo atendente.", "Arquivos anexados")
                                 st.success(f"{enviados} documento(s) enviado(s) com sucesso!")
                                 st.rerun()
                             except Exception as e:
@@ -2283,7 +2298,7 @@ st.sidebar.markdown(
     f"""
     <div class="sidebar-user-card">
         <div class="sidebar-user-name">👤 {usuario['nome']}</div>
-        <div class="sidebar-user-profile">🏷️ {usuario['perfil'].title()}</div>
+        <div class="sidebar-user-profile">🏷️ {rotulo_perfil_usuario(usuario['perfil']).title()}</div>
     </div>
     <div class="sidebar-menu-title">Menu</div>
     """,
@@ -2327,7 +2342,7 @@ if st.sidebar.button("🚪 Sair"):
 # -------------------------------
 if pagina == "Novo Cliente":
     st.title("➕ Novo Cliente")
-    st.caption("O captador é preenchido automaticamente pelo usuário logado.")
+    st.caption("O atendente é preenchido automaticamente pelo usuário logado.")
 
     with st.form("form_novo_lead", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -2367,7 +2382,7 @@ if pagina == "Novo Cliente":
         elif duplicado:
             st.warning(
                 f"⚠️ Cliente já cadastrado: {duplicado.get('nome_cliente','')} | "
-                f"Captador: {duplicado.get('captador_nome','')} | "
+                f"Atendente: {duplicado.get('captador_nome','')} | "
                 f"Status: {duplicado.get('status_lead','')}"
             )
         else:
@@ -2535,7 +2550,7 @@ elif pagina == "Painel Gestor":
             key="dashboard_unidade_filtro",
         )
     with colf6:
-        captador_filtro = st.multiselect("Captador", sorted(df["captador_nome"].dropna().unique().tolist()))
+        atendente_filtro = st.multiselect("Atendente", sorted(df["captador_nome"].dropna().unique().tolist()))
     with colf7:
         bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()))
     with colf8:
@@ -2548,8 +2563,8 @@ elif pagina == "Painel Gestor":
         df = df[df["status_lead"].isin(status_filtro)]
     if unidade_filtro:
         df = df[df["unidade"].isin(unidade_filtro)]
-    if captador_filtro:
-        df = df[df["captador_nome"].isin(captador_filtro)]
+    if atendente_filtro:
+        df = df[df["captador_nome"].isin(atendente_filtro)]
     if bairro_filtro:
         df = df[df["bairro"].isin(bairro_filtro)]
     if beneficio_filtro:
@@ -2636,8 +2651,8 @@ elif pagina == "Painel Gestor":
         fig.update_layout(height=390, margin=dict(l=10, r=10, t=30, b=10))
         st.plotly_chart(fig, use_container_width=True)
 
-    # 4 - Ranking captadores
-    st.markdown("<div class='v360-section-title'>4. Ranking de Captadores</div>", unsafe_allow_html=True)
+    # 4 - Ranking atendentes
+    st.markdown("<div class='v360-section-title'>4. Ranking de Atendentes</div>", unsafe_allow_html=True)
     col3, col4 = st.columns([1.15, .85])
     with col3:
         fig = px.bar(ranking.head(10), x="clientes", y="captador_nome", orientation="h", text="clientes", title="Ranking por volume de clientes")
@@ -2645,7 +2660,7 @@ elif pagina == "Painel Gestor":
         st.plotly_chart(fig, use_container_width=True)
     with col4:
         st.dataframe(ranking.rename(columns={
-            "captador_nome": "Captador", "clientes": "Clientes", "convertidos": "Convertidos",
+            "captador_nome": "Atendente", "clientes": "Clientes", "convertidos": "Convertidos",
             "em_atendimento": "Em atendimento", "perdidos": "Perdidos", "conversao_%": "Conversão %"
         }), use_container_width=True, hide_index=True)
 
@@ -2676,7 +2691,7 @@ elif pagina == "Painel Gestor":
             st.plotly_chart(fig, use_container_width=True)
             st.dataframe(bairros_conv.rename(columns={"bairro":"Bairro", "clientes":"Clientes", "convertidos":"Convertidos", "perdidos":"Perdidos", "conversao_%":"Conversão %"}), use_container_width=True, hide_index=True)
 
-    # 8 - Locais captação
+    # 8 - Locais clientes
     st.markdown("<div class='v360-section-title'>8. Locais de Clientes</div>", unsafe_allow_html=True)
     col7, col8 = st.columns(2)
     with col7:
@@ -2809,7 +2824,7 @@ elif pagina == "Insights V360":
 
     colf5, colf6, colf7, colf8 = st.columns(4)
     with colf5:
-        captador_filtro = st.multiselect("Captador", sorted(df["captador_nome"].dropna().unique().tolist()), key="ins_captador")
+        atendente_filtro = st.multiselect("Atendente", sorted(df["captador_nome"].dropna().unique().tolist()), key="ins_atendente")
     with colf6:
         bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()), key="ins_bairro")
     with colf7:
@@ -2820,8 +2835,8 @@ elif pagina == "Insights V360":
     df = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)]
     if status_filtro:
         df = df[df["status_lead"].isin(status_filtro)]
-    if captador_filtro:
-        df = df[df["captador_nome"].isin(captador_filtro)]
+    if atendente_filtro:
+        df = df[df["captador_nome"].isin(atendente_filtro)]
     if bairro_filtro:
         df = df[df["bairro"].isin(bairro_filtro)]
     if beneficio_filtro:
@@ -2871,7 +2886,7 @@ elif pagina == "Insights V360":
         )
 
     top_bairro, top_bairro_qtd, top_bairro_pct = top_valor("bairro")
-    top_captador, top_captador_qtd, top_captador_pct = top_valor("captador_nome")
+    top_atendente, top_atendente_qtd, top_atendente_pct = top_valor("captador_nome")
     top_beneficio, top_beneficio_qtd, top_beneficio_pct = top_valor("tipo_beneficio")
     top_local, top_local_qtd, top_local_pct = top_valor("local_captacao")
 
@@ -2888,7 +2903,7 @@ elif pagina == "Insights V360":
     st.markdown(
         "<div class='insights-grid'>" +
         card_insight("🏆 Bairro líder em clientes", top_bairro, f"{top_bairro_qtd} leads • {top_bairro_pct:.1f}% do período") +
-        card_insight("🥇 Captador destaque", top_captador, f"{top_captador_qtd} leads • {top_captador_pct:.1f}% do período") +
+        card_insight("🥇 Atendente destaque", top_atendente, f"{top_atendente_qtd} leads • {top_atendente_pct:.1f}% do período") +
         card_insight("📋 Benefício mais procurado", top_beneficio, f"{top_beneficio_qtd} leads • {top_beneficio_pct:.1f}% do período") +
         card_insight("🏪 Local mais produtivo", top_local, f"{top_local_qtd} leads • {top_local_pct:.1f}% do período") +
         card_insight("⚠️ Principal motivo de perda", top_motivo, f"{top_motivo_qtd} ocorrências • {top_motivo_pct:.1f}% das perdas") +
@@ -2948,18 +2963,18 @@ elif pagina == "Insights V360":
     local_tx, local_tx_sub = top_conv(locais_conv, "local_captacao")
     bairro_tx, bairro_tx_sub = top_conv(bairros_conv, "bairro")
     beneficio_tx, beneficio_tx_sub = top_conv(benef_conv, "tipo_beneficio")
-    captador_tx, captador_tx_sub = top_conv(capt_conv, "captador_nome")
+    atendente_tx, atendente_tx_sub = top_conv(capt_conv, "captador_nome")
 
     st.markdown(
         "<div class='insights-grid'>" +
         card_insight("📈 Melhor bairro para LOAS", bairro_loas, sub_loas) +
         card_insight("📈 Melhor bairro para Auxílio Doença", bairro_aux, sub_aux) +
         card_insight("📈 Melhor dia da semana para clientes", melhor_dia, f"{melhor_dia_qtd} leads no período") +
-        card_insight("📈 Melhor captador do mês", melhor_captador_mes, melhor_captador_mes_sub) +
+        card_insight("📈 Melhor atendente do mês", melhor_captador_mes, melhor_captador_mes_sub) +
         card_insight("📈 Local com maior taxa de conversão", local_tx, local_tx_sub) +
         card_insight("📈 Bairro com maior conversão geral", bairro_tx, bairro_tx_sub) +
         card_insight("📈 Benefício com maior conversão", beneficio_tx, beneficio_tx_sub) +
-        card_insight("📈 Captador com maior taxa de conversão", captador_tx, captador_tx_sub) +
+        card_insight("📈 Atendente com maior taxa de conversão", atendente_tx, atendente_tx_sub) +
         "</div>",
         unsafe_allow_html=True,
     )
@@ -2982,7 +2997,7 @@ elif pagina == "Insights V360":
     if not benef_conv.empty:
         linha = benef_conv.iloc[0]
         oportunidades.append(
-            f"<b>{linha['tipo_beneficio']}</b> é o benefício com melhor conversão ({linha['conversao_%']:.1f}%). Pode ser prioridade em campanhas e roteiros de captação."
+            f"<b>{linha['tipo_beneficio']}</b> é o benefício com melhor conversão ({linha['conversao_%']:.1f}%). Pode ser prioridade em campanhas e roteiros de clientes."
         )
     if not oportunidades:
         oportunidades.append("Ainda não há volume suficiente para oportunidades avançadas. Continue cadastrando clientes para o V360 identificar padrões.")
@@ -3177,7 +3192,7 @@ elif pagina == "Agenda de Atendimentos":
 # -------------------------------
 elif pagina == "Transferência de Clientes":
     st.title("🔁 Transferência de Clientes")
-    st.caption("Transfira um ou vários clientes para outro captador, com registro no histórico.")
+    st.caption("Transfira um ou vários clientes para outro atendente, com registro no histórico.")
 
     df_transferencia = aplicar_escopo_unidade(carregar_leads(), usuario)
 
@@ -3192,40 +3207,40 @@ elif pagina == "Transferência de Clientes":
         if col not in df_transferencia.columns:
             df_transferencia[col] = ""
 
-    captadores_ativos = [
+    atendentees_ativos = [
         u for u in listar_usuarios_ativos()
         if u.get("perfil") == "captador"
     ]
 
-    # Mantém apenas captadores dentro do escopo do gestor.
-    captadores_escopo = []
+    # Mantém apenas atendentes dentro do escopo do gestor.
+    atendentees_escopo = []
     unidades_admin = set(unidades_permitidas_usuario(usuario))
-    for captador in captadores_ativos:
-        unidades_captador = set(listar_unidades_usuario(str(captador.get("id", ""))))
+    for atendente in atendentees_ativos:
+        unidades_atendente = set(listar_unidades_usuario(str(atendente.get("id", ""))))
         unidade_padrao = (
-            captador.get("unidade_padrao")
-            or captador.get("unidade")
-            or captador.get("unidade_nome")
+            atendente.get("unidade_padrao")
+            or atendente.get("unidade")
+            or atendente.get("unidade_nome")
         )
         if unidade_padrao:
-            unidades_captador.add(unidade_padrao)
-        if usuario_eh_geral(usuario) or unidades_admin.intersection(unidades_captador):
-            captadores_escopo.append(captador)
+            unidades_atendente.add(unidade_padrao)
+        if usuario_eh_geral(usuario) or unidades_admin.intersection(unidades_atendente):
+            atendentees_escopo.append(atendente)
 
-    if not captadores_escopo:
-        st.warning("Nenhum captador ativo disponível dentro do seu escopo.")
+    if not atendentees_escopo:
+        st.warning("Nenhum atendente ativo disponível dentro do seu escopo.")
         st.stop()
 
     st.markdown("### 1. Filtrar clientes")
     f1, f2, f3, f4 = st.columns(4)
 
     with f1:
-        captadores_origem = sorted(
+        atendentes_origem = sorted(
             [x for x in df_transferencia["captador_nome"].fillna("").unique().tolist() if x]
         )
         filtro_captador_origem = st.multiselect(
-            "Captador atual",
-            captadores_origem,
+            "Atendente atual",
+            atendentes_origem,
             key="transf_filtro_captador_origem",
         )
 
@@ -3378,7 +3393,7 @@ elif pagina == "Transferência de Clientes":
             "telefone": "Telefone",
             "cidade": "Cidade",
             "bairro": "Bairro",
-            "captador_nome": "Captador atual",
+            "captador_nome": "Atendente atual",
             "status_lead": "Status",
             "data_captacao": "Data da clientes",
         },
@@ -3397,11 +3412,11 @@ elif pagina == "Transferência de Clientes":
 
     st.info(f"{len(lead_ids_selecionados)} lead(s) selecionado(s).")
 
-    st.markdown("### 3. Definir novo captador")
-    nomes_captadores_destino = [c.get("nome") for c in captadores_escopo]
+    st.markdown("### 3. Definir novo atendente")
+    nomes_atendentees_destino = [c.get("nome") for c in atendentees_escopo]
     novo_captador_nome = st.selectbox(
-        "Novo captador",
-        nomes_captadores_destino,
+        "Novo atendente",
+        nomes_atendentees_destino,
         key="transf_novo_captador",
     )
     motivo_transferencia = st.text_area(
@@ -3424,7 +3439,7 @@ elif pagina == "Transferência de Clientes":
             st.error("Marque a confirmação antes de transferir.")
         else:
             novo_captador = next(
-                (c for c in captadores_escopo if c.get("nome") == novo_captador_nome),
+                (c for c in atendentees_escopo if c.get("nome") == novo_captador_nome),
                 None,
             )
             try:
@@ -3448,7 +3463,7 @@ elif pagina == "Transferência de Clientes":
 # -------------------------------
 elif pagina == "Pendências":
     st.title("📌 Pendências Documentais")
-    st.caption("Solicite documentos aos captadores e acompanhe downloads da documentação.")
+    st.caption("Solicite documentos aos atendentes e acompanhe downloads da documentação.")
 
     df_leads_all = aplicar_escopo_unidade(carregar_leads(), usuario)
     usuarios_ativos = listar_usuarios_ativos()
@@ -3482,8 +3497,8 @@ elif pagina == "Pendências":
                 bairro_opcoes = sorted([x for x in df_select["bairro"].dropna().unique().tolist() if x])
                 filtro_bairro_lead = st.selectbox("Bairro", ["Todos"] + bairro_opcoes, key="pend_bairro_lead")
             with col_busca4:
-                captador_opcoes = sorted([x for x in df_select["captador_nome"].dropna().unique().tolist() if x])
-                filtro_captador_lead = st.selectbox("Captador", ["Todos"] + captador_opcoes, key="pend_captador_lead")
+                atendente_opcoes = sorted([x for x in df_select["captador_nome"].dropna().unique().tolist() if x])
+                filtro_captador_lead = st.selectbox("Atendente", ["Todos"] + atendente_opcoes, key="pend_atendente_lead")
 
             if termo_lead:
                 termo_norm = termo_lead.lower().strip()
@@ -3523,11 +3538,11 @@ elif pagina == "Pendências":
                     prioridade = st.selectbox("Prioridade", PRIORIDADE_PENDENCIA)
                     prazo = st.date_input("Prazo", date.today() + timedelta(days=3))
                 with colp2:
-                    visibilidade = st.radio("Visibilidade", ["Todos os captadores da unidade", "Captador específico"], horizontal=False)
-                    captadores = [u for u in usuarios_ativos if u.get("perfil") == "captador"]
-                    # Mantém somente captadores do escopo do gestor quando possível
-                    captadores_escopo = []
-                    for c in captadores:
+                    visibilidade = st.radio("Visibilidade", ["Todos os atendentes da unidade", "Atendente específico"], horizontal=False)
+                    atendentes = [u for u in usuarios_ativos if u.get("perfil") == "captador"]
+                    # Mantém somente atendentes do escopo do gestor quando possível
+                    atendentees_escopo = []
+                    for c in atendentes:
                         us = listar_unidades_usuario(str(c.get("id", "")))
                         unidade_c = c.get("unidade_padrao") or c.get("unidade") or c.get("unidade_nome")
                         if unidade_c and unidade_c not in us:
@@ -3535,17 +3550,17 @@ elif pagina == "Pendências":
                         if not us:
                             us = [lead.get("unidade", "Boa Vista")]
                         if set(us).intersection(set(unidades_permitidas)):
-                            captadores_escopo.append(c)
-                    nomes_capt = [c.get("nome") for c in captadores_escopo]
-                    captador_nome = st.selectbox("Captador", nomes_capt, disabled=(visibilidade == "Todos os captadores da unidade")) if nomes_capt else ""
+                            atendentees_escopo.append(c)
+                    nomes_capt = [c.get("nome") for c in atendentees_escopo]
+                    captador_nome = st.selectbox("Atendente", nomes_capt, disabled=(visibilidade == "Todos os atendentes da unidade")) if nomes_capt else ""
                 descricao = st.text_area("Descrição da pendência", placeholder="Ex.: Solicitar laudo médico atualizado e comprovante de residência.")
                 criar_p = st.form_submit_button("📌 Abrir pendência")
 
             if criar_p:
                 try:
-                    captador_destino = None
-                    if visibilidade == "Captador específico" and captador_nome:
-                        captador_destino = next((c for c in captadores_escopo if c.get("nome") == captador_nome), None)
+                    atendente_destino = None
+                    if visibilidade == "Atendente específico" and captador_nome:
+                        atendente_destino = next((c for c in atendentees_escopo if c.get("nome") == captador_nome), None)
                     dados = {
                         "lead_id": str(lead.get("id")),
                         "cliente_nome": lead.get("nome_cliente"),
@@ -3559,9 +3574,9 @@ elif pagina == "Pendências":
                         "prioridade": prioridade,
                         "prazo": prazo.isoformat(),
                         "status": "Aberta",
-                        "visibilidade": "Todos" if visibilidade == "Todos os captadores da unidade" else "Captador",
-                        "captador_destino_id": str(captador_destino.get("id")) if captador_destino else None,
-                        "captador_destino_nome": captador_destino.get("nome") if captador_destino else None,
+                        "visibilidade": "Todos" if visibilidade == "Todos os atendentes da unidade" else "Atendente",
+                        "captador_destino_id": str(atendente_destino.get("id")) if atendente_destino else None,
+                        "captador_destino_nome": atendente_destino.get("nome") if atendente_destino else None,
                         "criado_por_id": str(usuario.get("id")),
                         "criado_por_nome": usuario.get("nome"),
                     }
@@ -3591,8 +3606,8 @@ elif pagina == "Pendências":
             col1, col2, col3 = st.columns([1.6, 1, 1])
             with col1:
                 busca_p = st.text_input(
-                    "Buscar por cliente, CPF, telefone, captador ou descrição",
-                    placeholder="Digite nome, CPF, telefone, captador, tipo ou parte da descrição...",
+                    "Buscar por cliente, CPF, telefone, atendente ou descrição",
+                    placeholder="Digite nome, CPF, telefone, atendente, tipo ou parte da descrição...",
                     key="acompanhar_pend_busca",
                 )
             with col2:
@@ -3623,10 +3638,10 @@ elif pagina == "Pendências":
                     key="acompanhar_pend_tipo",
                 )
             with col6:
-                captador_p = st.multiselect(
-                    "Captador",
+                atendente_p = st.multiselect(
+                    "Atendente",
                     sorted([x for x in dfp["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").unique().tolist() if x]),
-                    key="acompanhar_pend_captador",
+                    key="acompanhar_pend_atendente",
                 )
             with col7:
                 bairro_p = st.multiselect(
@@ -3646,7 +3661,7 @@ elif pagina == "Pendências":
             with col9:
                 visibilidade_p = st.selectbox(
                     "Visibilidade",
-                    ["Todas", "Todos os captadores", "Captador específico"],
+                    ["Todas", "Todos os atendentes", "Atendente específico"],
                     key="acompanhar_pend_visibilidade",
                 )
             with col10:
@@ -3669,8 +3684,8 @@ elif pagina == "Pendências":
             if tipo_p:
                 dfp_f = dfp_f[dfp_f["tipo_pendencia"].isin(tipo_p)]
 
-            if captador_p:
-                dfp_f = dfp_f[dfp_f["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").isin(captador_p)]
+            if atendente_p:
+                dfp_f = dfp_f[dfp_f["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").isin(atendente_p)]
 
             if bairro_p:
                 dfp_f = dfp_f[dfp_f["bairro"].fillna("").replace("", "Não informado").isin(bairro_p)]
@@ -3678,10 +3693,10 @@ elif pagina == "Pendências":
             if prioridade_p:
                 dfp_f = dfp_f[dfp_f["prioridade"].fillna("Normal").replace("", "Normal").isin(prioridade_p)]
 
-            if visibilidade_p == "Todos os captadores":
-                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["todos", "todos_unidade", "todos os captadores da unidade"])]
-            elif visibilidade_p == "Captador específico":
-                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["captador", "captador específico", "captador especifico"])]
+            if visibilidade_p == "Todos os atendentes":
+                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["todos", "todos_unidade", "todos os atendentes da unidade"])]
+            elif visibilidade_p == "Atendente específico":
+                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["atendente", "atendente específico", "atendente especifico"])]
 
             if prazo_p != "Todos" and "prazo" in dfp_f.columns:
                 prazo_dt = pd.to_datetime(dfp_f["prazo"], errors="coerce").dt.date
@@ -3720,7 +3735,7 @@ elif pagina == "Pendências":
                 st.dataframe(dfp_f[cols].rename(columns={
                     "criado_em":"Criada em", "cliente_nome":"Cliente", "cpf":"CPF", "telefone":"Telefone", "bairro":"Bairro", "unidade":"Unidade",
                     "tipo_pendencia":"Tipo", "prioridade":"Prioridade", "prazo":"Prazo", "status":"Status",
-                    "visibilidade":"Visibilidade", "captador_destino_nome":"Captador",
+                    "visibilidade":"Visibilidade", "captador_destino_nome":"Atendente",
                     "documentos_enviados":"Docs enviados", "documentos_baixados":"Docs baixados", "situacao_documentos":"Situação docs"
                 }), use_container_width=True, hide_index=True)
 
@@ -3767,7 +3782,7 @@ elif pagina == "Atualizar Cliente":
         st.info("Nenhum cliente encontrado.")
         st.stop()
 
-    termo = st.text_input("Pesquisar por nome, CPF, telefone ou captador", placeholder="Digite parte do nome, CPF, telefone ou captador...")
+    termo = st.text_input("Pesquisar por nome, CPF, telefone ou atendente", placeholder="Digite parte do nome, CPF, telefone ou atendente...")
     df_busca = df.copy()
     if termo:
         termo_norm = termo.lower().strip()
@@ -3796,7 +3811,7 @@ elif pagina == "Atualizar Cliente":
     c1, c2, c3 = st.columns(3)
     c1.metric("Cliente", lead.get("nome_cliente", ""))
     c2.metric("Status", lead.get("status_lead", "Novo"))
-    c3.metric("Captador", lead.get("captador_nome", ""))
+    c3.metric("Atendente", lead.get("captador_nome", ""))
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -3809,7 +3824,7 @@ elif pagina == "Atualizar Cliente":
         st.write(f"**Benefício:** {lead.get('tipo_beneficio','')}")
         st.write(f"**Área:** {lead.get('area_acao','')}")
         data_cap = lead.get("data_captacao")
-        st.write(f"**Data captação:** {data_cap.strftime('%d/%m/%Y %H:%M') if hasattr(data_cap, 'strftime') else data_cap}")
+        st.write(f"**Data clientes:** {data_cap.strftime('%d/%m/%Y %H:%M') if hasattr(data_cap, 'strftime') else data_cap}")
         st.write(f"**Quem atendeu:** {lead.get('quem_atendeu','') or 'Ainda não informado'}")
 
     exibir_arquivos_do_lead(lead_id, usuario, lead.get("nome_cliente", "cliente"))
@@ -4004,7 +4019,7 @@ elif pagina == "Cadastros":
         if locais:
             st.dataframe(pd.DataFrame({"Locais ativos": locais}), use_container_width=True, hide_index=True)
         else:
-            st.info("Nenhum local cadastrado ainda. O captador poderá digitar livremente até você cadastrar os principais locais.")
+            st.info("Nenhum local cadastrado ainda. O atendente poderá digitar livremente até você cadastrar os principais locais.")
 
     with tab3:
         st.subheader("Tipos de Arquivo")
@@ -4071,7 +4086,7 @@ elif pagina == "Cadastros":
 
     with tab6:
         st.subheader("Cidades")
-        st.caption("Cadastre cidades para aparecerem nos selects do captador e no cadastro de usuários.")
+        st.caption("Cadastre cidades para aparecerem nos selects do atendente e no cadastro de usuários.")
 
         with st.form("form_nova_cidade"):
             cc1, cc2 = st.columns(2)
@@ -4110,7 +4125,7 @@ elif pagina == "Cadastros":
 
     with tab7:
         st.subheader("Bairros por cidade")
-        st.caption("Cadastre bairros para que o captador selecione em vez de digitar manualmente.")
+        st.caption("Cadastre bairros para que o atendente selecione em vez de digitar manualmente.")
         with st.form("form_novo_bairro_cidade"):
             cb1, cb2, cb3 = st.columns(3)
             with cb1:
@@ -4183,7 +4198,7 @@ elif pagina == "Usuários":
     if perfil_admin == "gestor_geral":
         st.info("Gestor geral: pode criar e editar usuários de todas as unidades.")
     else:
-        st.info("Gestor regional: pode criar e editar apenas captadores/supervisores das unidades liberadas.")
+        st.info("Gestor regional: pode criar e editar apenas atendentes/supervisores das unidades liberadas.")
 
     # Mensagens rápidas após salvar/criar usuário.
     # Como o app usa st.rerun(), o st.success comum some rapidamente.
@@ -4203,7 +4218,7 @@ elif pagina == "Usuários":
                 email = st.text_input("E-mail", key="criar_email")
             with col2:
                 senha = st.text_input("Senha", type="password", key="criar_senha")
-                perfil_novo = st.selectbox("Perfil", PERFIS_USUARIO, key="criar_perfil")
+                perfil_novo = st.selectbox("Perfil", PERFIS_USUARIO, format_func=rotulo_perfil_usuario, key="criar_perfil")
 
                 if perfil_novo == "gestor_geral":
                     unidades_usuario = unidades_todas
@@ -4230,7 +4245,7 @@ elif pagina == "Usuários":
                         unidades_opts,
                         default=unidades_opts[:1] if unidades_opts else [],
                         key="criar_unidades",
-                        help="Captador vê seus próprios clientes. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
+                        help="Atendente vê seus próprios clientes. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
                     )
                     cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
                     cidades_usuario = st.multiselect(
@@ -4314,14 +4329,14 @@ elif pagina == "Usuários":
                         alterar_senha = st.checkbox("Alterar senha", value=False)
                         nova_senha = st.text_input("Nova senha", type="password", disabled=not alterar_senha)
                     with col2:
-                        perfil_atual = usuario_edit.get("perfil") or "captador"
+                        perfil_atual = usuario_edit.get("perfil") or "atendente"
                         perfis_edicao = PERFIS_USUARIO.copy()
                         if perfil_admin == "gestor_geral" and perfil_atual not in perfis_edicao:
                             perfis_edicao.append(perfil_atual)
                         if perfil_atual not in perfis_edicao:
                             perfis_edicao = [perfil_atual] + perfis_edicao
                         idx_perfil = perfis_edicao.index(perfil_atual) if perfil_atual in perfis_edicao else 0
-                        perfil_edit = st.selectbox("Perfil", perfis_edicao, index=idx_perfil)
+                        perfil_edit = st.selectbox("Perfil", perfis_edicao, index=idx_perfil, format_func=rotulo_perfil_usuario)
                         ativo_edit = st.selectbox(
                             "Status do usuário",
                             ["Ativo", "Inativo"],
@@ -4423,4 +4438,7 @@ elif pagina == "Usuários":
 
             cols = ["nome", "email", "perfil", "ativo", "unidade_padrao", "unidades_liberadas", "cidades_liberadas"]
             cols = [c for c in cols if c in dfu.columns]
-            st.dataframe(dfu[cols], use_container_width=True, hide_index=True)
+            dfu_exibir = dfu[cols].copy()
+            if "perfil" in dfu_exibir.columns:
+                dfu_exibir["perfil"] = dfu_exibir["perfil"].apply(rotulo_perfil_usuario)
+            st.dataframe(dfu_exibir, use_container_width=True, hide_index=True)
