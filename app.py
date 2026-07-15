@@ -36,7 +36,7 @@ TABELA_BAIRROS = "captacao_bairros"
 TABELA_ARQUIVOS = "captacao_arquivos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cpf-opcional-final"
+VERSAO_APP = "producao-v360-unidade-dashboard-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1089,37 +1089,52 @@ def criar_cidade(estado: str, cidade: str):
 
 def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
     unidades = unidades_permitidas_usuario(usuario)
-    if len(unidades) <= 1:
-        unidade = unidades[0] if unidades else "Boa Vista"
+    unidades = list(dict.fromkeys([u for u in unidades if u])) or ["Boa Vista"]
+
+    def rotulo_unidade(unidade_nome: str) -> str:
+        uf = estado_da_unidade(unidade_nome)
+        if uf == "RR":
+            return "Roraima / Boa Vista"
+        if uf == "AM":
+            return "Amazonas"
+        return unidade_nome
+
+    if len(unidades) == 1:
+        unidade = unidades[0]
         uf = estado_da_unidade(unidade)
+        st.text_input("Unidade *", value=rotulo_unidade(unidade), disabled=True, key=f"{key}_unidade_disabled")
         st.text_input("Estado *", value=nome_estado_por_uf(uf), disabled=True, key=f"{key}_estado_disabled")
         return unidade
 
-    unidade = st.selectbox("Unidade *", unidades, key=key)
+    unidade = st.selectbox(
+        "Unidade *",
+        unidades,
+        format_func=rotulo_unidade,
+        key=key,
+        help="Selecione Amazonas ou Roraima / Boa Vista.",
+    )
     uf = estado_da_unidade(unidade)
     st.text_input("Estado *", value=nome_estado_por_uf(uf), disabled=True, key=f"{key}_estado_info")
     return unidade
 
-
 def estado_da_unidade(unidade_nome: str) -> str:
-    unidade_nome_norm = (unidade_nome or "").strip().lower()
-
-    # Regras fixas para evitar erro caso alguma unidade esteja cadastrada com UF incorreta no banco.
-    if unidade_nome_norm in ["boa vista", "roraima", "rr"]:
+    unidade_nome_norm = normalizar_texto(unidade_nome).strip().lower()
+    if unidade_nome_norm in {"boa vista", "roraima", "rr", "roraima / boa vista"}:
         return "RR"
-    if unidade_nome_norm in ["amazonas", "manaus", "am"] or "amazonas" in unidade_nome_norm:
+    if unidade_nome_norm in {"amazonas", "manaus", "am"} or "amazonas" in unidade_nome_norm:
         return "AM"
-
     try:
         for u in listar_unidades(True):
-            if str(u.get("nome", "")).strip().lower() == unidade_nome_norm:
+            nome_banco = normalizar_texto(str(u.get("nome", ""))).strip().lower()
+            if nome_banco == unidade_nome_norm:
                 estado = str(u.get("estado", "")).strip().upper()
                 if estado in CIDADES_POR_UF:
                     return estado
     except Exception:
         pass
-    return "RR"
-
+    if "boa vista" in unidade_nome_norm or "roraima" in unidade_nome_norm:
+        return "RR"
+    return "AM"
 
 def cidades_da_unidade(unidade_nome: str) -> list[str]:
     uf = estado_da_unidade(unidade_nome)
@@ -1839,7 +1854,7 @@ if perfil == "captador":
         if enviar:
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
-            if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
+            if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
                 st.error("Preencha os campos obrigatórios marcados com *.")
             elif not cpf_valido_ou_vazio(cpf):
                 st.error("CPF inválido. Use 11 números.")
@@ -2226,7 +2241,7 @@ if pagina == "Novo Lead":
         cpf_limpo = limpar_cpf(cpf)
         duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
 
-        if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
+        if not nome_cliente or not cpf_limpo or not telefone or not bairro or not cidade_lead or not local_captacao:
             st.error("Preencha os campos obrigatórios marcados com *.")
         elif not cpf_valido_ou_vazio(cpf):
             st.error("CPF inválido. Use 11 números.")
@@ -2391,19 +2406,31 @@ elif pagina == "Painel Gestor":
         data_ini = df["data_captacao"].dt.date.min()
         data_fim = df["data_captacao"].dt.date.max()
 
-    colf5, colf6, colf7, colf8 = st.columns(4)
+    if "unidade" not in df.columns:
+        df["unidade"] = "Boa Vista"
+    df["unidade"] = df["unidade"].fillna("Boa Vista").replace("", "Boa Vista")
+
+    colf5, colf6, colf7, colf8, colf9 = st.columns(5)
     with colf5:
-        captador_filtro = st.multiselect("Captador", sorted(df["captador_nome"].dropna().unique().tolist()))
+        unidade_filtro = st.multiselect(
+            "Unidade",
+            sorted(df["unidade"].dropna().unique().tolist()),
+            key="dashboard_unidade_filtro",
+        )
     with colf6:
-        bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()))
+        captador_filtro = st.multiselect("Captador", sorted(df["captador_nome"].dropna().unique().tolist()))
     with colf7:
-        beneficio_filtro = st.multiselect("Benefício", sorted(df["tipo_beneficio"].dropna().unique().tolist()))
+        bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()))
     with colf8:
+        beneficio_filtro = st.multiselect("Benefício", sorted(df["tipo_beneficio"].dropna().unique().tolist()))
+    with colf9:
         local_filtro = st.multiselect("Local", sorted(df["local_captacao"].dropna().unique().tolist()))
 
     df = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)]
     if status_filtro:
         df = df[df["status_lead"].isin(status_filtro)]
+    if unidade_filtro:
+        df = df[df["unidade"].isin(unidade_filtro)]
     if captador_filtro:
         df = df[df["captador_nome"].isin(captador_filtro)]
     if bairro_filtro:
