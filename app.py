@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-clientes-atendentes-cpf-opcional"
+VERSAO_APP = "producao-v360-agendamento-local-link-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -3866,9 +3866,40 @@ elif pagina == "Atualizar Cliente":
             motivo_perda = st.selectbox("Motivo da perda", MOTIVOS_PERDA, index=idx_motivo)
             observacao_atual = lead.get("observacao") or ""
             observacao_principal = st.text_area("Observação principal do cliente", value=observacao_atual)
-            modalidade_agenda = st.selectbox("Modalidade do atendimento", MODALIDADES_AGENDAMENTO)
-            local_agenda = st.text_input("Local ou link do atendimento")
-            observacao_agenda = st.text_area("Observação do agendamento")
+            modalidade_agenda = st.selectbox(
+                "Modalidade do atendimento",
+                MODALIDADES_AGENDAMENTO,
+                key="modalidade_agendamento_cliente",
+            )
+
+            local_agenda = ""
+            link_agenda = ""
+
+            if modalidade_agenda == "Presencial":
+                local_agenda = st.text_input(
+                    "Local do atendimento",
+                    placeholder="Ex.: Escritório Boa Vista, sala 2",
+                    key="local_agendamento_cliente",
+                )
+            elif modalidade_agenda == "Videochamada":
+                link_agenda = st.text_input(
+                    "Link da reunião",
+                    placeholder="Ex.: https://meet.google.com/...",
+                    key="link_agendamento_cliente",
+                )
+            elif modalidade_agenda == "WhatsApp":
+                link_agenda = st.text_input(
+                    "Número ou link do WhatsApp",
+                    placeholder="Ex.: (95) 99999-9999 ou link do WhatsApp",
+                    key="whatsapp_agendamento_cliente",
+                )
+            elif modalidade_agenda == "Telefone":
+                st.caption("Para atendimento por telefone, não é necessário informar local ou link.")
+
+            observacao_agenda = st.text_area(
+                "Observação do agendamento",
+                key="observacao_agendamento_cliente",
+            )
 
         observacao_atendimento = st.text_area(
             "Nova observação do atendimento / histórico",
@@ -3881,8 +3912,10 @@ elif pagina == "Atualizar Cliente":
             st.error("Informe o motivo da perda quando o status for Perdido.")
         elif status == "Agendado" and not advogado_agenda_nome:
             st.error("Selecione o advogado responsável.")
-        elif status == "Agendado" and not local_agenda.strip():
-            st.error("Informe o local ou link do atendimento.")
+        elif status == "Agendado" and modalidade_agenda == "Presencial" and not local_agenda.strip():
+            st.error("Informe o local do atendimento presencial.")
+        elif status == "Agendado" and modalidade_agenda in ["Videochamada", "WhatsApp"] and not link_agenda.strip():
+            st.error("Informe o link ou contato do atendimento.")
         else:
             dados = {
                 "status_lead": status,
@@ -3933,7 +3966,11 @@ elif pagina == "Atualizar Cliente":
                         "hora_inicio": hora_inicio_agenda.strftime("%H:%M"),
                         "hora_fim": hora_fim_agenda.strftime("%H:%M"),
                         "modalidade": modalidade_agenda,
-                        "local_atendimento": local_agenda.strip(),
+                        "local_atendimento": (
+                            local_agenda.strip()
+                            if modalidade_agenda == "Presencial"
+                            else link_agenda.strip()
+                        ),
                         "observacao": observacao_agenda.strip(),
                         "status_agendamento": "Agendado",
                         "criado_por_id": str(usuario.get("id")),
@@ -3945,7 +3982,9 @@ elif pagina == "Atualizar Cliente":
                         usuario["nome"],
                         "Agendado",
                         f"Atendimento agendado para {data_agenda.strftime('%d/%m/%Y')} às "
-                        f"{hora_inicio_agenda.strftime('%H:%M')} com {advogado_agenda_nome}.",
+                        f"{hora_inicio_agenda.strftime('%H:%M')} com {advogado_agenda_nome}. "
+                        f"Modalidade: {modalidade_agenda}. "
+                        f"Local/contato: {(local_agenda.strip() if modalidade_agenda == 'Presencial' else link_agenda.strip()) or 'Não informado'}.",
                         "Agendamento criado",
                     )
                 else:
