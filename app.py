@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-agendamento-local-link-corrigido"
+VERSAO_APP = "producao-v360-dashboard-clientes-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -2603,11 +2603,11 @@ elif pagina == "Painel Gestor":
     with c2: card_exec("📞 Em atendimento", atendimento, f"{novos} novos aguardando")
     with c3: card_exec("✅ Convertidos", convertidos, f"{conversao:.1f}% de conversão")
     with c4: card_exec("❌ Perdidos", perdidos, f"{perda_pct:.1f}% de perda")
-    with c5: card_exec("📈 Conversão", f"{conversao:.1f}%", f"{convertidos}/{total} leads")
+    with c5: card_exec("📈 Conversão", f"{conversao:.1f}%", f"{convertidos}/{total} clientes")
 
     # Preparações gerais
     ranking = df.groupby("captador_nome").agg(
-        leads=("id", "count"),
+        clientes=("id", "count"),
         convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
         em_atendimento=("status_lead", lambda s: (s == "Em atendimento").sum()),
         perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
@@ -2616,7 +2616,7 @@ elif pagina == "Painel Gestor":
     ranking = ranking.sort_values(["convertidos", "clientes"], ascending=False)
 
     bairros = df.groupby("bairro").agg(
-        leads=("id", "count"),
+        clientes=("id", "count"),
         convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
         perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
     ).reset_index()
@@ -2624,7 +2624,7 @@ elif pagina == "Painel Gestor":
     bairros = bairros.sort_values("clientes", ascending=False)
 
     locais = df.groupby("local_captacao").agg(
-        leads=("id", "count"),
+        clientes=("id", "count"),
         convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
         perdidos=("status_lead", lambda s: (s == "Perdido").sum()),
     ).reset_index()
@@ -2865,7 +2865,7 @@ elif pagina == "Insights V360":
 
     def agg_conversao(campo, minimo=3):
         base = df.groupby(campo).agg(
-            leads=("id", "count"),
+            clientes=("id", "count"),
             convertidos=("status_lead", lambda s: (s == "Convertido").sum()),
         ).reset_index()
         if base.empty:
