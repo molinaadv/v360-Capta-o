@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-unidades-escritorios"
+VERSAO_APP = "producao-v360-perfil-atendente-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1863,6 +1863,7 @@ def rotulo_perfil_usuario(perfil: str) -> str:
     mapa = {
         "captador": "atendente",
         "atendente": "atendente",
+        "atendente": "atendente",
         "pendencia": "pendência",
         "supervisor": "supervisor",
         "gestor_unidade": "gestor_unidade",
@@ -1891,7 +1892,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
 
     if perfil == "gestor_geral":
         return [
-            "atendente",
+            "captador",
             "pendencia",
             "supervisor",
             "gestor_unidade",
@@ -1901,7 +1902,7 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
 
     if perfil == "gestor_regional":
         return [
-            "atendente",
+            "captador",
             "pendencia",
             "supervisor",
             "gestor_unidade",
@@ -4759,7 +4760,9 @@ elif pagina == "Usuários":
                         alterar_senha = st.checkbox("Alterar senha", value=False)
                         nova_senha = st.text_input("Nova senha", type="password", disabled=not alterar_senha)
                     with col2:
-                        perfil_atual = usuario_edit.get("perfil") or "atendente"
+                        perfil_atual = usuario_edit.get("perfil") or "captador"
+                        if perfil_atual == "atendente":
+                            perfil_atual = "captador"
                         perfis_edicao = PERFIS_USUARIO.copy()
                         if perfil_admin == "gestor_geral" and perfil_atual not in perfis_edicao:
                             perfis_edicao.append(perfil_atual)
@@ -4811,6 +4814,9 @@ elif pagina == "Usuários":
                     salvar_edit = st.form_submit_button("💾 Salvar alterações")
 
                 if salvar_edit:
+                    if perfil_edit == "atendente":
+                        perfil_edit = "captador"
+
                     if not nome_edit or not email_edit:
                         st.error("Nome e e-mail são obrigatórios.")
                     elif alterar_senha and not nova_senha:
