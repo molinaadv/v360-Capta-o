@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-atendente-pendencias-documentos"
+VERSAO_APP = "producao-v360-unidades-escritorios"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -227,6 +227,8 @@ CIDADES_POR_UF = {
         "Caroebe", "Iracema", "Mucajaí", "Normandia", "Pacaraima",
         "Rorainópolis", "São João da Baliza", "São Luiz", "Uiramutã", "Outro",
     ],
+    "MT": ["Cuiabá", "Rondonópolis", "Outro"],
+    "RO": ["Porto Velho", "Outro"],
 }
 
 
@@ -810,28 +812,56 @@ def listar_tipos_arquivo():
 
 
 
-def listar_unidades(ativas: bool = True):
+
+def normalizar_uf(valor: str) -> str:
+    valor = normalizar_texto(valor).strip().upper()
+    mapa = {
+        "AMAZONAS": "AM",
+        "AM": "AM",
+        "RORAIMA": "RR",
+        "RR": "RR",
+    }
+    return mapa.get(valor, valor[:2] if valor else "")
+
+
+def normalizar_nome_unidade(nome: str, cidade: str = "", estado: str = "") -> str:
+    """Mantém o nome real do escritório/unidade."""
+    return normalizar_texto(nome).strip()
+
+
+def listar_unidades(apenas_ativas: bool = True) -> list[dict]:
     try:
-        q = supabase.table(TABELA_UNIDADES).select("*").order("nome")
-        if ativas:
+        q = supabase.table(TABELA_UNIDADES).select("*")
+        if apenas_ativas:
             q = q.eq("ativo", True)
         resp = q.execute()
-        dados = resp.data or []
-        if not dados:
-            return [{"nome": "Boa Vista", "cidade": "Boa Vista", "estado": "RR", "ativo": True}]
-        return dados
+
+        unidades = []
+        vistos = set()
+        for row in (resp.data or []):
+            nome = normalizar_texto(row.get("nome", "")).strip()
+            cidade = normalizar_texto(row.get("cidade", "")).strip()
+            estado = normalizar_uf(row.get("estado", ""))
+
+            if not nome:
+                continue
+
+            chave = nome.casefold()
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+
+            unidades.append({
+                **row,
+                "nome": nome,
+                "cidade": cidade,
+                "estado": estado,
+            })
+
+        return sorted(unidades, key=lambda x: x.get("nome", "").casefold())
+
     except Exception:
-        return [{"nome": "Boa Vista", "cidade": "Boa Vista", "estado": "RR", "ativo": True}]
-
-
-def criar_unidade(nome: str, cidade: str, estado: str):
-    dados = {
-        "nome": normalizar_texto(nome),
-        "cidade": normalizar_texto(cidade),
-        "estado": (estado or "").strip().upper(),
-        "ativo": True,
-    }
-    return supabase.table(TABELA_UNIDADES).insert(dados).execute()
+        return []
 
 
 def listar_unidades_usuario(usuario_id: str):
@@ -890,6 +920,8 @@ def nome_estado_por_uf(uf: str) -> str:
     mapa = {
         "AM": "Amazonas",
         "RR": "Roraima",
+        "MT": "Mato Grosso",
+        "RO": "Rondônia",
     }
     return mapa.get((uf or "").strip().upper(), (uf or "").strip().upper() or "Roraima")
 
@@ -1106,53 +1138,69 @@ def criar_cidade(estado: str, cidade: str):
 
 
 def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
-    unidades = unidades_permitidas_usuario(usuario)
-    unidades = list(dict.fromkeys([u for u in unidades if u])) or ["Boa Vista"]
+    unidades = list(dict.fromkeys([
+        u for u in unidades_permitidas_usuario(usuario) if u
+    ]))
 
-    def rotulo_unidade(unidade_nome: str) -> str:
-        uf = estado_da_unidade(unidade_nome)
-        if uf == "RR":
-            return "Roraima / Boa Vista"
-        if uf == "AM":
-            return "Amazonas"
-        return unidade_nome
+    if not unidades:
+        st.error("Seu usuário não possui uma unidade/escritório liberado.")
+        st.stop()
 
     if len(unidades) == 1:
         unidade = unidades[0]
         uf = estado_da_unidade(unidade)
-        st.text_input("Unidade *", value=rotulo_unidade(unidade), disabled=True, key=f"{key}_unidade_disabled")
-        st.text_input("Estado *", value=nome_estado_por_uf(uf), disabled=True, key=f"{key}_estado_disabled")
+        st.text_input(
+            "Unidade *",
+            value=unidade,
+            disabled=True,
+            key=f"{key}_unidade_disabled",
+        )
+        st.text_input(
+            "Estado *",
+            value=nome_estado_por_uf(uf),
+            disabled=True,
+            key=f"{key}_estado_disabled",
+        )
         return unidade
 
     unidade = st.selectbox(
         "Unidade *",
         unidades,
-        format_func=rotulo_unidade,
         key=key,
-        help="Selecione Amazonas ou Roraima / Boa Vista.",
+        help="Selecione o escritório responsável por este cliente.",
     )
     uf = estado_da_unidade(unidade)
-    st.text_input("Estado *", value=nome_estado_por_uf(uf), disabled=True, key=f"{key}_estado_info")
+    st.text_input(
+        "Estado *",
+        value=nome_estado_por_uf(uf),
+        disabled=True,
+        key=f"{key}_estado_info",
+    )
     return unidade
 
+
 def estado_da_unidade(unidade_nome: str) -> str:
-    unidade_nome_norm = normalizar_texto(unidade_nome).strip().lower()
-    if unidade_nome_norm in {"boa vista", "roraima", "rr", "roraima / boa vista"}:
-        return "RR"
-    if unidade_nome_norm in {"amazonas", "manaus", "am"} or "amazonas" in unidade_nome_norm:
-        return "AM"
+    unidade_norm = normalizar_texto(unidade_nome).strip().casefold()
+
     try:
-        for u in listar_unidades(True):
-            nome_banco = normalizar_texto(str(u.get("nome", ""))).strip().lower()
-            if nome_banco == unidade_nome_norm:
-                estado = str(u.get("estado", "")).strip().upper()
-                if estado in CIDADES_POR_UF:
+        for unidade in listar_unidades(True):
+            nome = normalizar_texto(unidade.get("nome", "")).strip().casefold()
+            if nome == unidade_norm:
+                estado = normalizar_uf(unidade.get("estado", ""))
+                if estado:
                     return estado
     except Exception:
         pass
-    if "boa vista" in unidade_nome_norm or "roraima" in unidade_nome_norm:
+
+    # Compatibilidade com cadastros antigos.
+    if "boa vista" in unidade_norm:
         return "RR"
+    if "porto velho" in unidade_norm:
+        return "RO"
+    if unidade_norm in {"cuiabá", "cuiaba", "rondonópolis", "rondonopolis"}:
+        return "MT"
     return "AM"
+
 
 def cidades_da_unidade(unidade_nome: str) -> list[str]:
     uf = estado_da_unidade(unidade_nome)
