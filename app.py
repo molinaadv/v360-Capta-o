@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-dashboard-clientes-corrigido"
+VERSAO_APP = "producao-v360-atendente-pendencias-documentos"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1813,6 +1813,7 @@ def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cl
 
 def rotulo_perfil_usuario(perfil: str) -> str:
     mapa = {
+        "captador": "atendente",
         "atendente": "atendente",
         "pendencia": "pendência",
         "supervisor": "supervisor",
@@ -1935,7 +1936,7 @@ perfil = usuario.get("perfil")
 # -------------------------------
 # ROTAS DO CAPTADOR - ESTILO CELULAR
 # -------------------------------
-if perfil == "atendente":
+if perfil in ["captador", "atendente"]:
     aplicar_css_mobile()
     header_mobile()
 
@@ -2315,6 +2316,12 @@ else:
         "📋 Minhas Clientes": "Minhas Clientes",
     }
 
+    if usuario.get("perfil") in ["captador", "atendente"]:
+        opcoes_base.update({
+            "📎 Enviar Documentos": "Documentos",
+            "📌 Pendências": "Minhas Pendências",
+        })
+
     if pode_ver_todos(usuario):
         opcoes_base.update({
             "📊 Dashboard Executivo": "Painel Gestor",
@@ -2455,6 +2462,172 @@ elif pagina == "Minhas Clientes":
 
         csv = df[colunas].to_csv(index=False).encode("utf-8-sig")
         st.download_button("Baixar CSV", csv, "captacoes.csv", "text/csv")
+
+
+# -------------------------------
+# ENVIAR DOCUMENTOS PARA CLIENTE JÁ CADASTRADO
+# -------------------------------
+elif pagina == "Documentos":
+    st.title("📎 Enviar Documentos")
+    st.caption("Localize um cliente já cadastrado e envie documentos mesmo que ele não tenha pendência aberta.")
+
+    df_docs = aplicar_escopo_unidade(carregar_leads(), usuario)
+
+    if df_docs.empty:
+        st.info("Nenhum cliente disponível no seu escopo.")
+    else:
+        df_docs = resumo_arquivos_para_leads(df_docs)
+
+        st.markdown("### 🔎 Localizar cliente")
+        c1, c2, c3 = st.columns([1.8, 1, 1])
+        with c1:
+            busca_doc = st.text_input(
+                "Nome, CPF ou telefone",
+                placeholder="Digite parte do nome, CPF ou telefone...",
+                key="docs_busca_desktop",
+            )
+        with c2:
+            unidade_doc = st.multiselect(
+                "Unidade",
+                sorted([x for x in df_docs.get("unidade", pd.Series(dtype=str)).fillna("").unique().tolist() if x]),
+                key="docs_unidade_desktop",
+            )
+        with c3:
+            situacao_docs = st.selectbox(
+                "Situação dos documentos",
+                ["Todos", "Com documentos não baixados", "Documentos baixados", "Sem documentos", "Com documentos"],
+                key="docs_situacao_desktop",
+            )
+
+        df_f = df_docs.copy()
+
+        if unidade_doc and "unidade" in df_f.columns:
+            df_f = df_f[df_f["unidade"].isin(unidade_doc)]
+
+        if situacao_docs == "Com documentos não baixados":
+            df_f = df_f[df_f["documentos_enviados"] > df_f["documentos_baixados"]]
+        elif situacao_docs == "Documentos baixados":
+            df_f = df_f[
+                (df_f["documentos_enviados"] > 0)
+                & (df_f["documentos_enviados"] == df_f["documentos_baixados"])
+            ]
+        elif situacao_docs == "Sem documentos":
+            df_f = df_f[df_f["documentos_enviados"] == 0]
+        elif situacao_docs == "Com documentos":
+            df_f = df_f[df_f["documentos_enviados"] > 0]
+
+        if busca_doc.strip():
+            termo = busca_doc.strip().lower()
+            termo_num = apenas_digitos(busca_doc)
+            mask = pd.Series(False, index=df_f.index)
+
+            for col in ["nome_cliente", "cpf", "telefone", "bairro", "cidade"]:
+                if col in df_f.columns:
+                    mask = mask | df_f[col].fillna("").astype(str).str.lower().str.contains(termo, na=False)
+
+            if termo_num:
+                if "cpf" in df_f.columns:
+                    mask = mask | df_f["cpf"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_num, na=False)
+                if "telefone" in df_f.columns:
+                    mask = mask | df_f["telefone"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_num, na=False)
+
+            df_f = df_f[mask]
+
+        st.caption(f"{len(df_f)} cliente(s) encontrado(s).")
+
+        if df_f.empty:
+            st.warning("Nenhum cliente encontrado com os filtros selecionados.")
+        else:
+            for col in ["nome_cliente", "telefone", "bairro", "cidade", "captador_nome"]:
+                if col not in df_f.columns:
+                    df_f[col] = ""
+                df_f[col] = df_f[col].fillna("").astype(str)
+
+            df_f["label_doc"] = (
+                df_f["nome_cliente"] + " | "
+                + df_f["telefone"] + " | "
+                + df_f["cidade"] + " | "
+                + df_f["bairro"] + " | Atendente: "
+                + df_f["captador_nome"]
+            )
+
+            lead_label = st.selectbox(
+                "Selecione o cliente",
+                df_f["label_doc"].tolist(),
+                key="docs_cliente_desktop",
+            )
+            lead = df_f[df_f["label_doc"] == lead_label].iloc[0]
+
+            i1, i2, i3, i4 = st.columns(4)
+            i1.metric("Cliente", str(lead.get("nome_cliente", "")))
+            i2.metric("Status", str(lead.get("status_lead", "Novo")))
+            i3.metric("Documentos enviados", int(lead.get("documentos_enviados", 0)))
+            i4.metric("Documentos baixados", int(lead.get("documentos_baixados", 0)))
+
+            with st.form("form_enviar_docs_cliente_desktop", clear_on_submit=True):
+                tipo_documento = st.selectbox(
+                    "Tipo dos arquivos",
+                    listar_tipos_arquivo(),
+                    key="tipo_doc_cliente_desktop",
+                )
+                arquivos = st.file_uploader(
+                    "📎 Anexar documentos/arquivos",
+                    accept_multiple_files=True,
+                    type=["pdf", "png", "jpg", "jpeg", "webp"],
+                    key="arquivos_cliente_desktop",
+                )
+                foto = st.file_uploader(
+                    "📷 Tirar foto ou escolher imagem",
+                    accept_multiple_files=False,
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key="foto_cliente_desktop",
+                    help="No celular, este campo pode abrir a câmera ou a galeria.",
+                )
+                observacao_docs = st.text_area(
+                    "Observação",
+                    placeholder="Ex.: Documento entregue pelo cliente durante atendimento externo.",
+                    key="obs_docs_cliente_desktop",
+                )
+                enviar_docs = st.form_submit_button("📎 Enviar documentos")
+
+            if enviar_docs:
+                arquivos_enviar = lista_arquivos_com_foto(
+                    arquivos,
+                    foto,
+                    f"foto_cliente_{str(lead.get('id'))}.jpg",
+                )
+
+                if not arquivos_enviar:
+                    st.error("Selecione pelo menos um arquivo ou uma foto.")
+                else:
+                    try:
+                        enviados = 0
+                        for arquivo in arquivos_enviar:
+                            enviar_arquivo_temporario(
+                                str(lead["id"]),
+                                arquivo,
+                                tipo_documento,
+                                usuario,
+                            )
+                            enviados += 1
+
+                        texto_hist = f"{enviados} documento(s) anexado(s) pelo atendente."
+                        if observacao_docs.strip():
+                            texto_hist += f" Observação: {observacao_docs.strip()}"
+
+                        salvar_historico(
+                            str(lead["id"]),
+                            usuario.get("nome", ""),
+                            lead.get("status_lead", "Novo"),
+                            texto_hist,
+                            "Documentos anexados",
+                        )
+
+                        st.success(f"{enviados} documento(s) enviado(s) com sucesso!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Erro ao enviar documentos: {e}")
+
 
 # -------------------------------
 # PAINEL GESTOR - EXECUTIVO V360
@@ -3456,6 +3629,176 @@ elif pagina == "Transferência de Clientes":
                 st.rerun()
             except Exception as e:
                 st.error(f"Erro ao transferir leads: {e}")
+
+
+
+# -------------------------------
+# MINHAS PENDÊNCIAS - ATENDENTE
+# -------------------------------
+elif pagina == "Minhas Pendências":
+    st.title("📌 Minhas Pendências")
+    st.caption("Consulte pendências atribuídas a você ou à sua unidade e envie os documentos solicitados.")
+
+    dfp = carregar_pendencias()
+    dfp = filtrar_pendencias_por_escopo(dfp, usuario)
+    dfp = resumo_documentos_pendencias(dfp)
+
+    if dfp.empty:
+        st.info("Nenhuma pendência documental para você no momento.")
+    else:
+        st.markdown("### 🔎 Filtros")
+        p1, p2, p3 = st.columns([1.8, 1, 1])
+        with p1:
+            busca_pend = st.text_input(
+                "Cliente, CPF, telefone ou descrição",
+                placeholder="Digite parte do nome, CPF, telefone ou descrição...",
+                key="minhas_pend_busca_desktop",
+            )
+        with p2:
+            status_pend = st.multiselect(
+                "Status",
+                STATUS_PENDENCIA,
+                default=["Aberta", "Em andamento"],
+                key="minhas_pend_status_desktop",
+            )
+        with p3:
+            docs_pend = st.selectbox(
+                "Situação dos documentos",
+                ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"],
+                key="minhas_pend_docs_desktop",
+            )
+
+        dfp_f = dfp.copy()
+
+        if status_pend:
+            dfp_f = dfp_f[dfp_f["status"].fillna("Aberta").isin(status_pend)]
+
+        dfp_f = aplicar_filtro_documentos_df(dfp_f, docs_pend)
+
+        if busca_pend.strip():
+            termo = busca_pend.strip().lower()
+            mask = pd.Series(False, index=dfp_f.index)
+            for col in ["cliente_nome", "cpf", "telefone", "descricao", "tipo_pendencia"]:
+                if col in dfp_f.columns:
+                    mask = mask | dfp_f[col].fillna("").astype(str).str.lower().str.contains(termo, na=False)
+            dfp_f = dfp_f[mask]
+
+        st.caption(f"{len(dfp_f)} pendência(s) encontrada(s).")
+
+        if dfp_f.empty:
+            st.warning("Nenhuma pendência encontrada com os filtros selecionados.")
+        else:
+            for col in ["cliente_nome", "tipo_pendencia", "status", "prioridade", "descricao"]:
+                if col not in dfp_f.columns:
+                    dfp_f[col] = ""
+                dfp_f[col] = dfp_f[col].fillna("").astype(str)
+
+            dfp_f["label_pend"] = (
+                dfp_f["cliente_nome"] + " | "
+                + dfp_f["tipo_pendencia"] + " | "
+                + dfp_f["status"] + " | Prioridade: "
+                + dfp_f["prioridade"]
+            )
+
+            pend_label = st.selectbox(
+                "Selecione a pendência",
+                dfp_f["label_pend"].tolist(),
+                key="minhas_pend_select_desktop",
+            )
+            pend = dfp_f[dfp_f["label_pend"] == pend_label].iloc[0]
+
+            st.write(f"**Cliente:** {pend.get('cliente_nome', '')}")
+            st.write(f"**Tipo:** {pend.get('tipo_pendencia', '')}")
+            st.write(f"**Descrição:** {pend.get('descricao', '')}")
+            st.write(
+                f"**Prioridade:** {pend.get('prioridade', 'Normal')} | "
+                f"**Status:** {pend.get('status', 'Aberta')}"
+            )
+            st.write(
+                f"📎 **Enviados:** {int(pend.get('documentos_enviados', 0))} | "
+                f"📥 **Baixados:** {int(pend.get('documentos_baixados', 0))}"
+            )
+
+            with st.form("form_minhas_pendencias_desktop", clear_on_submit=True):
+                status_atual = pend.get("status", "Aberta")
+                novo_status = st.selectbox(
+                    "Atualizar status",
+                    STATUS_PENDENCIA,
+                    index=STATUS_PENDENCIA.index(status_atual) if status_atual in STATUS_PENDENCIA else 0,
+                )
+                tipo_doc = st.selectbox(
+                    "Tipo dos arquivos",
+                    listar_tipos_arquivo(),
+                    key="tipo_doc_minhas_pend_desktop",
+                )
+                arquivos_p = st.file_uploader(
+                    "📎 Anexar documentos/arquivos",
+                    accept_multiple_files=True,
+                    type=["pdf", "png", "jpg", "jpeg", "webp"],
+                    key="arquivos_minhas_pend_desktop",
+                )
+                foto_p = st.file_uploader(
+                    "📷 Tirar foto ou escolher imagem",
+                    accept_multiple_files=False,
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key="foto_minhas_pend_desktop",
+                )
+                observacao_p = st.text_area(
+                    "Observação",
+                    placeholder="Ex.: Cliente entregou o documento solicitado.",
+                )
+                salvar_p = st.form_submit_button("📎 Enviar / atualizar")
+
+            if salvar_p:
+                try:
+                    lead_id = str(pend.get("lead_id", ""))
+                    arquivos_enviar = lista_arquivos_com_foto(
+                        arquivos_p,
+                        foto_p,
+                        f"foto_pendencia_{lead_id}.jpg",
+                    )
+
+                    enviados = 0
+                    if arquivos_enviar and lead_id:
+                        for arquivo in arquivos_enviar:
+                            enviar_arquivo_temporario(
+                                lead_id,
+                                arquivo,
+                                tipo_doc,
+                                usuario,
+                            )
+                            enviados += 1
+
+                    dados_up = {
+                        "status": novo_status,
+                        "atualizado_em": datetime.now(timezone.utc).isoformat(),
+                    }
+
+                    if novo_status == "Resolvida":
+                        dados_up["resolvido_em"] = datetime.now(timezone.utc).isoformat()
+                        dados_up["resolvido_por"] = usuario.get("nome")
+
+                    atualizar_pendencia(str(pend["id"]), dados_up)
+
+                    if lead_id:
+                        texto = f"Pendência atualizada para {novo_status}."
+                        if enviados:
+                            texto += f" {enviados} documento(s) enviado(s)."
+                        if observacao_p.strip():
+                            texto += f" Observação: {observacao_p.strip()}"
+
+                        salvar_historico(
+                            lead_id,
+                            usuario.get("nome", ""),
+                            novo_status,
+                            texto,
+                            "Pendência documental",
+                        )
+
+                    st.success("Pendência atualizada com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao atualizar pendência: {e}")
 
 
 # -------------------------------
