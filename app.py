@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-perfil-atendente-corrigido"
+VERSAO_APP = "producao-v360-criar-unidade-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1325,6 +1325,42 @@ def criar_local_captacao(nome: str):
 def criar_tipo_arquivo(nome: str):
     return supabase.table(TABELA_TIPOS_ARQUIVO).insert({"nome": normalizar_texto(nome), "ativo": True}).execute()
 
+
+def criar_unidade(nome: str, cidade: str, estado: str):
+    """
+    Cadastra uma nova unidade/escritório no Supabase.
+    Mantém o nome informado, normaliza cidade e padroniza a UF.
+    """
+    nome_limpo = normalizar_texto(nome).strip()
+    cidade_limpa = normalizar_texto(cidade).strip()
+    estado_limpo = normalizar_uf(estado)
+
+    if not nome_limpo:
+        raise ValueError("Informe o nome da unidade.")
+    if not cidade_limpa:
+        raise ValueError("Informe a cidade da unidade.")
+    if not estado_limpo:
+        raise ValueError("Informe o estado da unidade.")
+
+    # Evita duplicidade de unidade por nome, ignorando maiúsculas/minúsculas.
+    existente = (
+        supabase.table(TABELA_UNIDADES)
+        .select("nome")
+        .ilike("nome", nome_limpo)
+        .limit(1)
+        .execute()
+    )
+    if existente.data:
+        raise ValueError(f"A unidade '{nome_limpo}' já está cadastrada.")
+
+    dados = {
+        "nome": nome_limpo,
+        "cidade": cidade_limpa,
+        "estado": estado_limpo,
+        "ativo": True,
+    }
+    return supabase.table(TABELA_UNIDADES).insert(dados).execute()
+
 def listar_tipos_pendencia():
     try:
         resp = (
@@ -1862,7 +1898,6 @@ def exibir_arquivos_do_lead(lead_id: str, usuario: dict, nome_cliente: str = "cl
 def rotulo_perfil_usuario(perfil: str) -> str:
     mapa = {
         "captador": "atendente",
-        "atendente": "atendente",
         "atendente": "atendente",
         "pendencia": "pendência",
         "supervisor": "supervisor",
