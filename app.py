@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-criar-unidade-corrigido"
+VERSAO_APP = "producao-v360-cidade-boa-vista-corrigida"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -820,6 +820,11 @@ def normalizar_uf(valor: str) -> str:
         "AM": "AM",
         "RORAIMA": "RR",
         "RR": "RR",
+        "MATO GROSSO": "MT",
+        "MT": "MT",
+        "RONDÔNIA": "RO",
+        "RONDONIA": "RO",
+        "RO": "RO",
     }
     return mapa.get(valor, valor[:2] if valor else "")
 
@@ -928,14 +933,47 @@ def nome_estado_por_uf(uf: str) -> str:
 
 
 def cidades_de_unidades(unidades: list[str]) -> list[str]:
-    """Retorna cidades possíveis das unidades/estados, incluindo cidades cadastradas."""
+    """
+    Retorna as cidades disponíveis para as unidades informadas.
+
+    Inclui:
+    - a cidade principal cadastrada em captacao_unidades;
+    - as cidades cadastradas para a UF;
+    - a lista padrão da UF.
+
+    Isso garante que Boa Vista apareça para a unidade
+    BOA VISTA - RORAIMA, mesmo que ainda não existam bairros cadastrados.
+    """
     cidades = []
-    for unidade in unidades or []:
-        uf = estado_da_unidade(unidade)
+    unidades_cadastradas = listar_unidades(True)
+
+    for unidade_nome in unidades or []:
+        unidade_norm = normalizar_texto(unidade_nome).strip().casefold()
+
+        unidade_encontrada = next(
+            (
+                u for u in unidades_cadastradas
+                if normalizar_texto(u.get("nome", "")).strip().casefold() == unidade_norm
+            ),
+            None,
+        )
+
+        uf = estado_da_unidade(unidade_nome)
+
+        if unidade_encontrada:
+            cidade_base = normalizar_texto(unidade_encontrada.get("cidade", "")).strip()
+            if cidade_base and cidade_base not in cidades:
+                cidades.append(cidade_base)
+
         for cidade in listar_cidades_cadastradas(uf):
-            if cidade not in cidades:
+            if cidade and cidade not in cidades:
                 cidades.append(cidade)
-    return cidades or ["Boa Vista"]
+
+        for cidade in CIDADES_POR_UF.get(uf, []):
+            if cidade and cidade not in cidades:
+                cidades.append(cidade)
+
+    return sorted(cidades, key=lambda item: item.casefold()) or ["Boa Vista"]
 
 
 def listar_cidades_usuario(usuario_id: str) -> list[str]:
@@ -4713,7 +4751,7 @@ elif pagina == "Usuários":
                         key="criar_unidades",
                         help="Atendente vê seus próprios clientes. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
                     )
-                    cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
+                    cidades_disponiveis_criar = cidades_de_unidades(unidades_opts)
                     cidades_usuario = st.multiselect(
                         "Cidades liberadas",
                         cidades_disponiveis_criar,
@@ -4838,7 +4876,7 @@ elif pagina == "Usuários":
                                 default=unidades_validas or (unidades_opts[:1] if unidades_opts else []),
                                 help="Selecione apenas as unidades dentro do seu escopo."
                             )
-                            cidades_disponiveis_edit = cidades_de_unidades(unidades_edit or unidades_opts)
+                            cidades_disponiveis_edit = cidades_de_unidades(unidades_opts)
                             cidades_validas = [c for c in cidades_atual if c in cidades_disponiveis_edit]
                             cidades_edit = st.multiselect(
                                 "Cidades liberadas",
