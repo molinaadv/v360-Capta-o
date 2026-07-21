@@ -4999,7 +4999,14 @@ elif pagina == "Usuários":
                             help="Selecione somente unidades dentro do seu escopo."
                         )
 
-                    cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
+                    # Lista cidades somente das unidades selecionadas no cadastro.
+                    # Evita misturar cidades de estados diferentes.
+                    unidades_usuario = [
+                        resolver_nome_unidade_cadastrada(u)
+                        for u in (unidades_usuario or [])
+                        if u
+                    ]
+                    cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario) if unidades_usuario else []
 
                     if perfil_admin == "gestor_unidade" and len(cidades_disponiveis_criar) == 1:
                         cidades_usuario = cidades_disponiveis_criar
@@ -5107,7 +5114,11 @@ elif pagina == "Usuários":
                             ["Ativo", "Inativo"],
                             index=0 if usuario_edit.get("ativo", True) else 1,
                         )
-                        unidades_validas = [u for u in unidades_atual if u in unidades_opts]
+                        unidades_validas = []
+                        for unidade_atual in unidades_atual:
+                            unidade_resolvida = resolver_nome_unidade_cadastrada(unidade_atual)
+                            if unidade_resolvida in unidades_opts and unidade_resolvida not in unidades_validas:
+                                unidades_validas.append(unidade_resolvida)
 
                         if perfil_edit == "gestor_geral":
                             unidades_edit = unidades_todas
@@ -5147,7 +5158,15 @@ elif pagina == "Usuários":
                                     help="Selecione apenas as unidades dentro do seu escopo."
                                 )
 
-                            cidades_disponiveis_edit = cidades_de_unidades(unidades_edit or unidades_opts)
+                            # As cidades devem vir somente das unidades efetivamente selecionadas.
+                            # Não usamos todas as unidades do gestor como fallback, pois isso misturava
+                            # cidades do Amazonas com Boa Vista - Roraima.
+                            unidades_edit = [
+                                resolver_nome_unidade_cadastrada(u)
+                                for u in (unidades_edit or [])
+                                if u
+                            ]
+                            cidades_disponiveis_edit = cidades_de_unidades(unidades_edit) if unidades_edit else []
                             cidades_validas = [c for c in cidades_atual if c in cidades_disponiveis_edit]
 
                             if perfil_admin == "gestor_unidade" and len(cidades_disponiveis_edit) == 1:
