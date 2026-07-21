@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-gestor-regional-unidades-corrigido"
+VERSAO_APP = "producao-v360-gestor-unidade-cria-usuarios"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -2002,7 +2002,7 @@ def pode_acessar_pendencias(usuario: dict) -> bool:
 
 
 def pode_gerenciar_usuarios(usuario: dict) -> bool:
-    return usuario.get("perfil") in ["gestor_geral", "gestor_regional"]
+    return usuario.get("perfil") in ["gestor_geral", "gestor_regional", "gestor_unidade"]
 
 
 def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
@@ -2026,6 +2026,13 @@ def perfis_que_usuario_pode_criar(usuario: dict) -> list[str]:
             "gestor_unidade",
         ]
 
+    if perfil == "gestor_unidade":
+        return [
+            "captador",
+            "pendencia",
+            "supervisor",
+        ]
+
     return []
 
 
@@ -2040,7 +2047,6 @@ def usuario_dentro_do_escopo_admin(admin: dict, alvo: dict) -> bool:
         return True
 
     if perfil_admin == "gestor_regional":
-        # Gestor regional não pode mexer em gestor geral nem em outro gestor regional.
         if perfil_alvo in ["gestor_geral", "gestor_regional"]:
             return False
 
@@ -2053,10 +2059,24 @@ def usuario_dentro_do_escopo_admin(admin: dict, alvo: dict) -> bool:
             or alvo.get("unidade_nome")
         )
         if unidade_padrao:
-            unidades_alvo.add(unidade_padrao)
+            unidades_alvo.add(resolver_nome_unidade_cadastrada(unidade_padrao))
 
-        if not unidades_alvo:
-            unidades_alvo.add("Boa Vista")
+        return bool(unidades_admin.intersection(unidades_alvo))
+
+    if perfil_admin == "gestor_unidade":
+        if perfil_alvo not in ["captador", "atendente", "pendencia", "supervisor"]:
+            return False
+
+        unidades_admin = set(unidades_permitidas_usuario(admin))
+        unidades_alvo = set(listar_unidades_usuario(str(alvo.get("id", ""))))
+
+        unidade_padrao = (
+            alvo.get("unidade_padrao")
+            or alvo.get("unidade")
+            or alvo.get("unidade_nome")
+        )
+        if unidade_padrao:
+            unidades_alvo.add(resolver_nome_unidade_cadastrada(unidade_padrao))
 
         return bool(unidades_admin.intersection(unidades_alvo))
 
@@ -4738,6 +4758,8 @@ elif pagina == "Usuários":
     PERFIS_USUARIO = perfis_que_usuario_pode_criar(usuario)
     unidades_todas = [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
     unidades_opts = unidades_todas if perfil_admin == "gestor_geral" else [u for u in unidades_permitidas_usuario(usuario) if u in unidades_todas]
+    if perfil_admin == "gestor_unidade" and unidades_opts:
+        unidades_opts = unidades_opts[:1]
     cidades_opts = cidades_de_unidades(unidades_opts)
 
     if not unidades_opts and perfil_admin != "gestor_geral":
@@ -4746,8 +4768,10 @@ elif pagina == "Usuários":
 
     if perfil_admin == "gestor_geral":
         st.info("Gestor geral: pode criar e editar usuários de todas as unidades.")
+    elif perfil_admin == "gestor_regional":
+        st.info("Gestor regional: pode criar gestores de unidade, supervisores, atendentes e usuários de pendência nas unidades liberadas.")
     else:
-        st.info("Gestor regional: pode criar e editar apenas atendentes/supervisores das unidades liberadas.")
+        st.info("Gestor de unidade: pode criar e editar supervisores, atendentes e usuários de pendência somente da própria unidade.")
 
     # Mensagens rápidas após salvar/criar usuário.
     # Como o app usa st.rerun(), o st.success comum some rapidamente.
