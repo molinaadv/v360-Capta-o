@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-observacao-novo-cliente-verificada"
+VERSAO_APP = "producao-v360-meus-clientes-escopo-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -952,6 +952,55 @@ def unidades_permitidas_usuario(usuario: dict) -> list[str]:
             unidades_resolvidas.append(nome_real)
 
     return unidades_resolvidas
+
+
+
+def filtrar_clientes_do_atendente(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
+    """
+    Retorna todos os clientes pertencentes ao atendente.
+
+    Compatibilidade:
+    - registros atuais vinculados por captador_id;
+    - registros antigos vinculados apenas pelo nome do captador;
+    - registros eventualmente vinculados pelo e-mail do captador.
+    """
+    if df is None or df.empty or not usuario:
+        return pd.DataFrame(columns=df.columns if df is not None else [])
+
+    usuario_id = str(usuario.get("id") or "").strip()
+    usuario_nome = normalizar_texto(usuario.get("nome") or "").strip().casefold()
+    usuario_email = str(usuario.get("email") or "").strip().casefold()
+
+    mascara = pd.Series(False, index=df.index)
+
+    if "captador_id" in df.columns and usuario_id:
+        mascara = mascara | (
+            df["captador_id"].fillna("").astype(str).str.strip() == usuario_id
+        )
+
+    if "captador_nome" in df.columns and usuario_nome:
+        mascara = mascara | (
+            df["captador_nome"]
+            .fillna("")
+            .astype(str)
+            .map(normalizar_texto)
+            .str.strip()
+            .str.casefold()
+            == usuario_nome
+        )
+
+    for coluna_email in ["captador_email", "email_captador", "usuario_email"]:
+        if coluna_email in df.columns and usuario_email:
+            mascara = mascara | (
+                df[coluna_email]
+                .fillna("")
+                .astype(str)
+                .str.strip()
+                .str.casefold()
+                == usuario_email
+            )
+
+    return df[mascara].copy()
 
 
 def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
@@ -2174,7 +2223,7 @@ if perfil in ["captador", "atendente"]:
     header_mobile()
 
     opcoes_atendente = ["➕ Novo Cliente", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
-    mapa_atendente = {"➕ Novo Cliente": "Novo Cliente", "📋 Minhas": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
+    mapa_atendente = {"➕ Novo Cliente": "Novo Cliente", "📋 Meus": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
     pagina_atual_label = next((k for k, v in mapa_atendente.items() if v == st.session_state.atendente_pagina), "➕ Novo Cliente")
     st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
     nav_escolhida = st.radio(
@@ -2275,13 +2324,14 @@ if perfil in ["captador", "atendente"]:
                     st.error(f"Erro ao salvar cliente: {e}")
 
     elif st.session_state.atendente_pagina == "Minhas Clientes":
-        abrir_card_mobile("Minhas Clientes", "Filtre e acompanhe seus clientes")
+        abrir_card_mobile("Meus Clientes", "Filtre e acompanhe seus clientes")
         df = carregar_leads()
         if df.empty:
-            st.info("Nenhuma clientes encontrada.")
+            st.info("Nenhum cliente encontrado.")
         else:
-            df = df[df["captador_id"].astype(str) == str(usuario["id"])]
+            df = filtrar_clientes_do_atendente(df, usuario)
             df = resumo_arquivos_para_leads(df)
+            st.caption(f"{len(df)} cliente(s) localizado(s) para este usuário.")
             if df.empty:
                 st.info("Você ainda não possui clientes cadastrados.")
             else:
@@ -2429,9 +2479,9 @@ if perfil in ["captador", "atendente"]:
         abrir_card_mobile("Documentos", "Adicione documentos em clientes já cadastrados")
         df = carregar_leads()
         if df.empty:
-            st.info("Nenhuma clientes encontrada.")
+            st.info("Nenhum cliente encontrado.")
         else:
-            df = df[df["captador_id"].astype(str) == str(usuario["id"])]
+            df = filtrar_clientes_do_atendente(df, usuario)
             if df.empty:
                 st.info("Você ainda não possui clientes cadastrados.")
             else:
@@ -2554,7 +2604,7 @@ if usuario.get("perfil") == "pendencia":
 else:
     opcoes_base = {
         "➕ Novo Cliente": "Novo Cliente",
-        "📋 Minhas Clientes": "Minhas Clientes",
+        "📋 Meus Clientes": "Minhas Clientes",
     }
 
     if usuario.get("perfil") in ["captador", "atendente"]:
@@ -2674,14 +2724,16 @@ if pagina == "Novo Cliente":
 # MINHAS CAPTAÇÕES
 # -------------------------------
 elif pagina == "Minhas Clientes":
-    st.title("📋 Minhas Clientes")
+    st.title("📋 Meus Clientes")
     df = aplicar_escopo_unidade(carregar_leads(), usuario)
 
     if df.empty:
-        st.info("Nenhuma clientes encontrada.")
+        st.info("Nenhum cliente encontrado.")
     else:
         if not pode_ver_todos(usuario):
-            df = df[df["captador_id"].astype(str) == str(usuario["id"])]
+            df = filtrar_clientes_do_atendente(df, usuario)
+
+        st.caption(f"{len(df)} cliente(s) localizado(s) para este usuário.")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -2703,7 +2755,7 @@ elif pagina == "Minhas Clientes":
         st.dataframe(preparar_dataframe_exibicao(df[colunas]), use_container_width=True, hide_index=True)
 
         csv = df[colunas].to_csv(index=False).encode("utf-8-sig")
-        st.download_button("Baixar CSV", csv, "captacoes.csv", "text/csv")
+        st.download_button("Baixar CSV", csv, "meus_clientes.csv", "text/csv")
 
 
 # -------------------------------
