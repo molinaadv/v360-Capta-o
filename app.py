@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-dashboard-regional-unidades-corrigido"
+VERSAO_APP = "producao-v360-cidade-boa-vista-corrigida"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1088,9 +1088,17 @@ def cidades_de_unidades(unidades: list[str]) -> list[str]:
 
         uf = estado_da_unidade(unidade_nome)
 
+        # Boa Vista - Roraima deve sempre disponibilizar Boa Vista,
+        # mesmo que o registro antigo da unidade esteja com cidade/UF incorreta.
+        if uf == "RR" and ("boa vista" in unidade_norm or "roraima" in unidade_norm):
+            if "Boa Vista" not in cidades:
+                cidades.append("Boa Vista")
+
         if unidade_encontrada:
             cidade_base = normalizar_texto(unidade_encontrada.get("cidade", "")).strip()
-            if cidade_base and cidade_base not in cidades:
+            # Não mistura cidade de outra UF quando o cadastro histórico da unidade
+            # estiver inconsistente.
+            if cidade_base and estado_por_cidade(cidade_base) == uf and cidade_base not in cidades:
                 cidades.append(cidade_base)
 
         for cidade in listar_cidades_cadastradas(uf):
@@ -1348,6 +1356,16 @@ def selecionar_unidade_usuario(usuario: dict, key: str = "unidade_lead") -> str:
 def estado_da_unidade(unidade_nome: str) -> str:
     unidade_norm = normalizar_texto(unidade_nome).strip().casefold()
 
+    # Regras prioritárias para unidades cujo nome já identifica a UF.
+    # Isso evita que um cadastro antigo/incorreto em captacao_unidades
+    # faça Boa Vista - Roraima carregar cidades do Amazonas.
+    if "boa vista" in unidade_norm or "roraima" in unidade_norm:
+        return "RR"
+    if "porto velho" in unidade_norm:
+        return "RO"
+    if unidade_norm in {"cuiabá", "cuiaba", "rondonópolis", "rondonopolis"}:
+        return "MT"
+
     try:
         for unidade in listar_unidades(True):
             nome = normalizar_texto(unidade.get("nome", "")).strip().casefold()
@@ -1358,13 +1376,6 @@ def estado_da_unidade(unidade_nome: str) -> str:
     except Exception:
         pass
 
-    # Compatibilidade com cadastros antigos.
-    if "boa vista" in unidade_norm:
-        return "RR"
-    if "porto velho" in unidade_norm:
-        return "RO"
-    if unidade_norm in {"cuiabá", "cuiaba", "rondonópolis", "rondonopolis"}:
-        return "MT"
     return "AM"
 
 
