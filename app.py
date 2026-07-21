@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-permissoes-gestores-completas"
+VERSAO_APP = "producao-v360-dashboard-regional-unidades-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1004,15 +1004,49 @@ def filtrar_clientes_do_atendente(df: pd.DataFrame, usuario: dict) -> pd.DataFra
 
 
 def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
+    """
+    Aplica o escopo de unidades do usuário.
+
+    Compatibilidade importante:
+    - clientes antigos podem estar gravados como "Boa Vista";
+    - a unidade atual pode estar cadastrada como "Boa Vista - Roraima";
+    - clientes antigos do Amazonas podem estar como "Amazonas" e a unidade atual como "Online".
+
+    O filtro compara os nomes já resolvidos para a unidade oficial.
+    """
     if df.empty:
         return df
+
+    df = df.copy()
+
     if "unidade" not in df.columns:
-        df = df.copy()
         df["unidade"] = "Boa Vista"
+
     if usuario_eh_geral(usuario):
         return df
-    permitidas = unidades_permitidas_usuario(usuario)
-    return df[df["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(permitidas)]
+
+    permitidas = [
+        resolver_nome_unidade_cadastrada(unidade)
+        for unidade in unidades_permitidas_usuario(usuario)
+        if unidade
+    ]
+    permitidas_normalizadas = {
+        normalizar_texto(unidade).strip().casefold()
+        for unidade in permitidas
+        if unidade
+    }
+
+    def normalizar_unidade_registro(valor):
+        valor_limpo = normalizar_texto(valor or "Boa Vista").strip()
+        if not valor_limpo:
+            valor_limpo = "Boa Vista"
+
+        nome_resolvido = resolver_nome_unidade_cadastrada(valor_limpo)
+        return normalizar_texto(nome_resolvido).strip().casefold()
+
+    unidades_registros = df["unidade"].apply(normalizar_unidade_registro)
+
+    return df[unidades_registros.isin(permitidas_normalizadas)].copy()
 
 
 def nome_estado_por_uf(uf: str) -> str:
@@ -2965,10 +2999,22 @@ elif pagina == "Painel Gestor":
         unsafe_allow_html=True,
     )
 
+    unidades_dashboard = unidades_permitidas_usuario(usuario)
     df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
 
+    if usuario.get("perfil") == "gestor_regional":
+        st.caption(
+            "Escopo regional: "
+            + (", ".join(unidades_dashboard) if unidades_dashboard else "nenhuma unidade vinculada")
+        )
+    elif usuario.get("perfil") == "gestor_unidade":
+        st.caption(
+            "Escopo da unidade: "
+            + (", ".join(unidades_dashboard) if unidades_dashboard else "nenhuma unidade vinculada")
+        )
+
     if df_original.empty:
-        st.info("Nenhum dado encontrado. Cadastre alguns clientes de teste para visualizar o executivo.")
+        st.info("Nenhum cliente encontrado nas unidades vinculadas a este usuário.")
         st.stop()
 
     df = df_original.copy()
