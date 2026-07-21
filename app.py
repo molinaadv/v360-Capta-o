@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-meus-clientes-escopo-corrigido"
+VERSAO_APP = "producao-v360-permissoes-gestores-completas"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -4870,7 +4870,10 @@ elif pagina == "Usuários":
     cidades_opts = cidades_de_unidades(unidades_opts)
 
     if not unidades_opts and perfil_admin != "gestor_geral":
-        st.warning("Seu usuário gestor regional não possui uma unidade ativa vinculada. Vincule ao menos uma unidade para criar usuários.")
+        if perfil_admin == "gestor_unidade":
+            st.warning("Seu usuário Gestor de Unidade não possui uma unidade ativa vinculada. Peça ao Gestor Regional ou Geral para ajustar o cadastro.")
+        else:
+            st.warning("Seu usuário Gestor Regional não possui unidades ativas vinculadas. Peça ao Gestor Geral para ajustar o cadastro.")
         st.stop()
 
     if perfil_admin == "gestor_geral":
@@ -4920,21 +4923,44 @@ elif pagina == "Usuários":
                         key="criar_cidades_geral",
                     )
                 else:
-                    unidades_usuario = st.multiselect(
-                        "Unidades liberadas",
-                        unidades_opts,
-                        default=unidades_opts[:1] if unidades_opts else [],
-                        key="criar_unidades",
-                        help="Atendente vê seus próprios clientes. Pendência vê somente o menu Pendências da unidade. Supervisor/regional veem as unidades liberadas."
-                    )
-                    cidades_disponiveis_criar = cidades_de_unidades(unidades_opts)
-                    cidades_usuario = st.multiselect(
-                        "Cidades liberadas",
-                        cidades_disponiveis_criar,
-                        default=cidades_disponiveis_criar[:1] if cidades_disponiveis_criar else [],
-                        key="criar_cidades",
-                        help="Você pode liberar uma ou mais cidades para este usuário."
-                    )
+                    if perfil_admin == "gestor_unidade":
+                        unidades_usuario = unidades_opts[:1]
+                        st.selectbox(
+                            "Unidade liberada",
+                            unidades_opts,
+                            index=0,
+                            disabled=True,
+                            key="criar_unidade_fixa_gestor_unidade",
+                            help="O Gestor de Unidade só pode criar usuários na própria unidade.",
+                        )
+                    else:
+                        unidades_usuario = st.multiselect(
+                            "Unidades liberadas",
+                            unidades_opts,
+                            default=unidades_opts[:1] if unidades_opts else [],
+                            key="criar_unidades",
+                            help="Selecione somente unidades dentro do seu escopo."
+                        )
+
+                    cidades_disponiveis_criar = cidades_de_unidades(unidades_usuario or unidades_opts)
+
+                    if perfil_admin == "gestor_unidade" and len(cidades_disponiveis_criar) == 1:
+                        cidades_usuario = cidades_disponiveis_criar
+                        st.selectbox(
+                            "Cidade liberada",
+                            cidades_disponiveis_criar,
+                            index=0,
+                            disabled=True,
+                            key="criar_cidade_fixa_gestor_unidade",
+                        )
+                    else:
+                        cidades_usuario = st.multiselect(
+                            "Cidades liberadas",
+                            cidades_disponiveis_criar,
+                            default=cidades_disponiveis_criar[:1] if cidades_disponiveis_criar else [],
+                            key="criar_cidades",
+                            help="Selecione uma ou mais cidades dentro das unidades liberadas."
+                        )
             criar = st.form_submit_button("Criar Usuário")
 
         if criar:
@@ -4985,7 +5011,7 @@ elif pagina == "Usuários":
             else:
                 def label_usuario(u):
                     ativo_txt = "Ativo" if u.get("ativo", True) else "Inativo"
-                    return f"{u.get('nome','')} | {u.get('email','')} | {u.get('perfil','')} | {ativo_txt}"
+                    return f"{u.get('nome','')} | {u.get('email','')} | {rotulo_perfil_usuario(u.get('perfil',''))} | {ativo_txt}"
 
                 labels = [label_usuario(u) for u in usuarios_filtrados]
                 escolhido = st.selectbox("Selecionar usuário", labels, key="usuario_para_editar")
@@ -5046,20 +5072,43 @@ elif pagina == "Usuários":
                                 key="editar_cidades_geral",
                             )
                         else:
-                            unidades_edit = st.multiselect(
-                                "Unidades liberadas",
-                                unidades_opts,
-                                default=unidades_validas or (unidades_opts[:1] if unidades_opts else []),
-                                help="Selecione apenas as unidades dentro do seu escopo."
-                            )
-                            cidades_disponiveis_edit = cidades_de_unidades(unidades_opts)
+                            if perfil_admin == "gestor_unidade":
+                                unidades_edit = unidades_opts[:1]
+                                st.selectbox(
+                                    "Unidade liberada",
+                                    unidades_opts,
+                                    index=0,
+                                    disabled=True,
+                                    key="editar_unidade_fixa_gestor_unidade",
+                                    help="O Gestor de Unidade não pode mover usuários para outra unidade.",
+                                )
+                            else:
+                                unidades_edit = st.multiselect(
+                                    "Unidades liberadas",
+                                    unidades_opts,
+                                    default=unidades_validas or (unidades_opts[:1] if unidades_opts else []),
+                                    help="Selecione apenas as unidades dentro do seu escopo."
+                                )
+
+                            cidades_disponiveis_edit = cidades_de_unidades(unidades_edit or unidades_opts)
                             cidades_validas = [c for c in cidades_atual if c in cidades_disponiveis_edit]
-                            cidades_edit = st.multiselect(
-                                "Cidades liberadas",
-                                cidades_disponiveis_edit,
-                                default=cidades_validas or (cidades_disponiveis_edit[:1] if cidades_disponiveis_edit else []),
-                                help="Selecione uma ou mais cidades dentro das unidades liberadas."
-                            )
+
+                            if perfil_admin == "gestor_unidade" and len(cidades_disponiveis_edit) == 1:
+                                cidades_edit = cidades_disponiveis_edit
+                                st.selectbox(
+                                    "Cidade liberada",
+                                    cidades_disponiveis_edit,
+                                    index=0,
+                                    disabled=True,
+                                    key="editar_cidade_fixa_gestor_unidade",
+                                )
+                            else:
+                                cidades_edit = st.multiselect(
+                                    "Cidades liberadas",
+                                    cidades_disponiveis_edit,
+                                    default=cidades_validas or (cidades_disponiveis_edit[:1] if cidades_disponiveis_edit else []),
+                                    help="Selecione uma ou mais cidades dentro das unidades liberadas."
+                                )
                     salvar_edit = st.form_submit_button("💾 Salvar alterações")
 
                 if salvar_edit:
@@ -5072,6 +5121,8 @@ elif pagina == "Usuários":
                         st.error("Informe a nova senha ou desmarque a opção Alterar senha.")
                     elif perfil_edit not in PERFIS_USUARIO:
                         st.error("Você não tem permissão para atribuir esse perfil.")
+                    elif perfil_admin == "gestor_unidade" and perfil_edit not in ["captador", "pendencia", "supervisor"]:
+                        st.error("Gestor de Unidade só pode atribuir os perfis Atendente, Pendência ou Supervisor.")
                     elif perfil_edit != "gestor_geral" and not unidades_edit:
                         st.error("Selecione ao menos uma unidade para o usuário.")
                     elif perfil_edit != "gestor_geral" and not cidades_edit:
