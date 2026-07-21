@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cidade-boa-vista-corrigida"
+VERSAO_APP = "producao-v360-gestor-regional-unidades-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -890,23 +890,68 @@ def usuario_eh_geral(usuario: dict) -> bool:
     return perfil in ["gestor_geral", "gestor"]
 
 
+
+def resolver_nome_unidade_cadastrada(valor: str) -> str:
+    """
+    Converte nomes antigos ou abreviados para o nome real cadastrado.
+    Ex.: Boa Vista -> Boa Vista - Roraima.
+    """
+    valor_limpo = normalizar_texto(valor).strip()
+    if not valor_limpo:
+        return ""
+
+    unidades_ativas = listar_unidades(True)
+    por_nome = {
+        normalizar_texto(u.get("nome", "")).strip().casefold(): u.get("nome", "")
+        for u in unidades_ativas
+        if u.get("nome")
+    }
+
+    chave = valor_limpo.casefold()
+    if chave in por_nome:
+        return por_nome[chave]
+
+    aliases = {
+        "boa vista": "boa vista - roraima",
+        "roraima / boa vista": "boa vista - roraima",
+        "boa vista - rr": "boa vista - roraima",
+        "amazonas": "online",
+    }
+
+    destino = aliases.get(chave)
+    if destino and destino in por_nome:
+        return por_nome[destino]
+
+    return valor_limpo
+
+
 def unidades_permitidas_usuario(usuario: dict) -> list[str]:
     if not usuario:
         return []
+
     if usuario_eh_geral(usuario):
         return [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
 
-    unidades = listar_unidades_usuario(str(usuario.get("id", "")))
+    unidades_brutas = listar_unidades_usuario(str(usuario.get("id", "")))
 
-    # Compatibilidade com versões antigas da tabela de usuários
+    # Compatibilidade com versões antigas da tabela de usuários.
     for campo in ["unidade", "unidade_padrao", "unidade_nome"]:
         valor = usuario.get(campo)
-        if valor and valor not in unidades:
-            unidades.append(valor)
+        if valor:
+            unidades_brutas.append(valor)
 
-    if not unidades:
-        unidades = ["Boa Vista"]
-    return unidades
+    # O cabeçalho antigo pode mostrar Boa Vista, enquanto a unidade oficial
+    # está cadastrada como Boa Vista - Roraima.
+    if not unidades_brutas:
+        unidades_brutas = ["Boa Vista"]
+
+    unidades_resolvidas = []
+    for unidade in unidades_brutas:
+        nome_real = resolver_nome_unidade_cadastrada(unidade)
+        if nome_real and nome_real not in unidades_resolvidas:
+            unidades_resolvidas.append(nome_real)
+
+    return unidades_resolvidas
 
 
 def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
@@ -4696,7 +4741,7 @@ elif pagina == "Usuários":
     cidades_opts = cidades_de_unidades(unidades_opts)
 
     if not unidades_opts and perfil_admin != "gestor_geral":
-        st.warning("Seu usuário não possui unidades liberadas. Peça para um gestor geral ajustar seu cadastro.")
+        st.warning("Seu usuário gestor regional não possui uma unidade ativa vinculada. Vincule ao menos uma unidade para criar usuários.")
         st.stop()
 
     if perfil_admin == "gestor_geral":
