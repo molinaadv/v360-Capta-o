@@ -37,7 +37,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-gestor-unidade-cria-usuarios"
+VERSAO_APP = "producao-v360-observacao-novo-cliente-verificada"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1757,6 +1757,52 @@ def salvar_lead(dados: dict):
     return supabase.table(TABELA_LEADS).insert(dados).execute()
 
 
+def garantir_observacao_lead(lead_id: str, observacao: str) -> bool:
+    """
+    Confere se a observação foi gravada no cliente.
+    Caso o retorno do INSERT venha sem o campo ou o banco devolva vazio,
+    executa um UPDATE de segurança e confere novamente.
+    """
+    if not lead_id:
+        return False
+
+    observacao_limpa = (observacao or "").strip()
+
+    try:
+        resp = (
+            supabase.table(TABELA_LEADS)
+            .select("id,observacao")
+            .eq("id", str(lead_id))
+            .limit(1)
+            .execute()
+        )
+        atual = ""
+        if resp.data:
+            atual = str(resp.data[0].get("observacao") or "").strip()
+
+        if atual == observacao_limpa:
+            return True
+
+        supabase.table(TABELA_LEADS).update({
+            "observacao": observacao_limpa
+        }).eq("id", str(lead_id)).execute()
+
+        resp_conf = (
+            supabase.table(TABELA_LEADS)
+            .select("observacao")
+            .eq("id", str(lead_id))
+            .limit(1)
+            .execute()
+        )
+        confirmado = ""
+        if resp_conf.data:
+            confirmado = str(resp_conf.data[0].get("observacao") or "").strip()
+
+        return confirmado == observacao_limpa
+    except Exception:
+        return False
+
+
 def atualizar_lead(lead_id: str, dados: dict):
     return supabase.table(TABELA_LEADS).update(dados).eq("id", lead_id).execute()
 
@@ -2205,6 +2251,7 @@ if perfil in ["captador", "atendente"]:
                     resp = salvar_lead(dados)
                     novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                     if novo_id:
+                        observacao_ok = garantir_observacao_lead(novo_id, observacao)
                         salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Cliente cadastrado")
                         arquivos_para_enviar = lista_arquivos_com_foto(
                             arquivos_upload,
@@ -2217,9 +2264,15 @@ if perfil in ["captador", "atendente"]:
                                 enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
                                 enviados += 1
                             salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
-                    st.success("Cliente salvo com sucesso!")
+                    if novo_id and observacao.strip() and not observacao_ok:
+                        st.warning(
+                            "O cliente foi salvo, mas não foi possível confirmar a observação. "
+                            "Abra o cliente em Atualizar Cliente para conferir."
+                        )
+                    else:
+                        st.success("Cliente salvo com sucesso, incluindo a observação!")
                 except Exception as e:
-                    st.error(f"Erro ao salvar lead: {e}")
+                    st.error(f"Erro ao salvar cliente: {e}")
 
     elif st.session_state.atendente_pagina == "Minhas Clientes":
         abrir_card_mobile("Minhas Clientes", "Filtre e acompanhe seus clientes")
@@ -2289,7 +2342,8 @@ if perfil in ["captador", "atendente"]:
 
                 colunas = [
                     "data_captacao", "nome_cliente", "telefone", "cidade", "bairro", "local_captacao", "unidade",
-                    "tipo_beneficio", "status_lead", "documentos_enviados", "documentos_baixados", "status_documentos"
+                    "tipo_beneficio", "status_lead", "observacao",
+                    "documentos_enviados", "documentos_baixados", "status_documentos"
                 ]
                 colunas = [c for c in colunas if c in df_filtrado.columns]
                 st.dataframe(preparar_dataframe_exibicao(df_filtrado[colunas]), use_container_width=True, hide_index=True)
@@ -2599,6 +2653,7 @@ if pagina == "Novo Cliente":
                 resp = salvar_lead(dados)
                 novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                 if novo_id:
+                    observacao_ok = garantir_observacao_lead(novo_id, observacao)
                     salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Cliente cadastrado")
                     arquivos_para_enviar = lista_arquivos_com_foto(
                         arquivos_upload,
