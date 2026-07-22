@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-71-agenda-sem-duplicacao"
+VERSAO_APP = "app-72-reagendamento-unico"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -1813,25 +1813,107 @@ def buscar_agendamento_ativo_por_lead(lead_id: str):
     return agendamentos[0] if agendamentos else None
 
 
-def cancelar_agendamentos_duplicados(lead_id: str, manter_id: str):
-    """Mantém um único agendamento ativo por cliente e cancela duplicados antigos."""
-    if not lead_id or not manter_id:
+def cancelar_agendamentos_duplicados(
+    lead_id: str,
+    manter_id: str,
+    cliente_nome: str = "",
+    telefone: str = "",
+):
+    """Mantém somente um compromisso ativo para o mesmo cliente.
+
+    Além do lead_id, usa o telefone como chave de segurança. Isso corrige casos
+    antigos em que o mesmo cliente foi cadastrado mais de uma vez e acabou com
+    agendamentos ligados a IDs de cliente diferentes.
+    """
+    if not manter_id:
         return
-    for item in buscar_agendamentos_ativos_por_lead(lead_id):
-        item_id = str(item.get("id") or "")
-        if item_id and item_id != str(manter_id):
+
+    candidatos: dict[str, dict] = {}
+
+    def adicionar(rows):
+        for row in rows or []:
+            row_id = str(row.get("id") or "")
+            if row_id:
+                candidatos[row_id] = row
+
+    try:
+        if lead_id:
+            resp = (
+                supabase.table(TABELA_AGENDAMENTOS)
+                .select("*")
+                .eq("lead_id", str(lead_id))
+                .execute()
+            )
+            adicionar(resp.data)
+
+        telefone_limpo = apenas_digitos(telefone)
+        if telefone_limpo:
+            # Telefones antigos podem estar gravados formatados. Consulta os
+            # formatos mais comuns e também compara os dígitos em memória.
+            for valor in {telefone, formatar_telefone(telefone_limpo), telefone_limpo}:
+                if not valor:
+                    continue
+                try:
+                    resp = (
+                        supabase.table(TABELA_AGENDAMENTOS)
+                        .select("*")
+                        .eq("telefone", valor)
+                        .execute()
+                    )
+                    adicionar(resp.data)
+                except Exception:
+                    pass
+
+        # Busca adicional pelo nome apenas para conferir registros legados;
+        # quando há telefone, somente cancela se os dígitos também coincidirem.
+        nome_limpo = normalizar_texto(cliente_nome).strip()
+        if nome_limpo:
             try:
-                supabase.table(TABELA_AGENDAMENTOS).update({
-                    "status_agendamento": "Cancelado",
-                    "observacao": (
-                        (str(item.get("observacao") or "").strip() + " ")
-                        + "Cancelado automaticamente por substituição/reagendamento."
-                    ).strip(),
-                    "atualizado_em": agora_utc_iso(),
-                }).eq("id", item_id).execute()
+                resp = (
+                    supabase.table(TABELA_AGENDAMENTOS)
+                    .select("*")
+                    .ilike("cliente_nome", nome_limpo)
+                    .execute()
+                )
+                adicionar(resp.data)
             except Exception:
                 pass
-    carregar_agendamentos.clear()
+
+        status_ativos = {"", "Agendado", "Confirmado", "Remarcado"}
+        for item_id, item in candidatos.items():
+            if item_id == str(manter_id):
+                continue
+
+            status_item = str(item.get("status_agendamento") or "").strip()
+            if status_item not in status_ativos:
+                continue
+
+            mesmo_cliente = bool(lead_id) and str(item.get("lead_id") or "") == str(lead_id)
+            telefone_item = apenas_digitos(item.get("telefone") or "")
+            mesmo_telefone = bool(telefone_limpo and telefone_item and telefone_item == telefone_limpo)
+            mesmo_nome = (
+                bool(nome_limpo)
+                and normalizar_texto(item.get("cliente_nome") or "").strip().casefold()
+                == nome_limpo.casefold()
+            )
+
+            # O telefone é a chave mais confiável. O nome só é usado quando não
+            # existe telefone, evitando cancelar homônimos.
+            if not (mesmo_cliente or mesmo_telefone or (not telefone_limpo and mesmo_nome)):
+                continue
+
+            observacao_antiga = str(item.get("observacao") or "").strip()
+            observacao_nova = (
+                f"{observacao_antiga} " if observacao_antiga else ""
+            ) + "Cancelado automaticamente porque o atendimento foi reagendado."
+
+            supabase.table(TABELA_AGENDAMENTOS).update({
+                "status_agendamento": "Cancelado",
+                "observacao": observacao_nova,
+                "atualizado_em": agora_utc_iso(),
+            }).eq("id", item_id).execute()
+    finally:
+        carregar_agendamentos.clear()
 
 
 @st.cache_data(ttl=30)
@@ -4833,7 +4915,11 @@ elif pagina == "Atualizar Cliente":
 
                     if agendamento_id_atual:
                         atualizar_agendamento(agendamento_id_atual, dados_agendamento)
-                        cancelar_agendamentos_duplicados(lead_id, agendamento_id_atual)
+                        cancelar_agendamentos_duplicados(
+                            lead_id, agendamento_id_atual,
+                            cliente_nome=str(lead.get("nome_cliente") or ""),
+                            telefone=str(lead.get("telefone") or ""),
+                        )
                         acao_agendamento = "Agendamento atualizado"
                     else:
                         dados_agendamento.update({
@@ -4844,7 +4930,11 @@ elif pagina == "Atualizar Cliente":
                         novo_agendamento_id = str((resp_ag.data or [{}])[0].get("id") or "") if hasattr(resp_ag, "data") else ""
                         carregar_agendamentos.clear()
                         if novo_agendamento_id:
-                            cancelar_agendamentos_duplicados(lead_id, novo_agendamento_id)
+                            cancelar_agendamentos_duplicados(
+                                lead_id, novo_agendamento_id,
+                                cliente_nome=str(lead.get("nome_cliente") or ""),
+                                telefone=str(lead.get("telefone") or ""),
+                            )
                         acao_agendamento = "Agendamento criado"
 
                     salvar_historico(
