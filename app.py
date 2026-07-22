@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-70-central-pendencias-agenda-manaus"
+VERSAO_APP = "app-71-agenda-sem-duplicacao"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -1784,7 +1784,54 @@ def salvar_agendamento(dados: dict):
 
 
 def atualizar_agendamento(agendamento_id: str, dados: dict):
-    return supabase.table(TABELA_AGENDAMENTOS).update(dados).eq("id", agendamento_id).execute()
+    resp = supabase.table(TABELA_AGENDAMENTOS).update(dados).eq("id", agendamento_id).execute()
+    carregar_agendamentos.clear()
+    return resp
+
+
+def buscar_agendamentos_ativos_por_lead(lead_id: str) -> list[dict]:
+    """Retorna os agendamentos não cancelados do cliente, do mais recente para o mais antigo."""
+    if not lead_id:
+        return []
+    try:
+        resp = (
+            supabase.table(TABELA_AGENDAMENTOS)
+            .select("*")
+            .eq("lead_id", str(lead_id))
+            .neq("status_agendamento", "Cancelado")
+            .order("data_agendamento", desc=True)
+            .order("hora_inicio", desc=True)
+            .execute()
+        )
+        return resp.data or []
+    except Exception:
+        return []
+
+
+def buscar_agendamento_ativo_por_lead(lead_id: str):
+    agendamentos = buscar_agendamentos_ativos_por_lead(lead_id)
+    return agendamentos[0] if agendamentos else None
+
+
+def cancelar_agendamentos_duplicados(lead_id: str, manter_id: str):
+    """Mantém um único agendamento ativo por cliente e cancela duplicados antigos."""
+    if not lead_id or not manter_id:
+        return
+    for item in buscar_agendamentos_ativos_por_lead(lead_id):
+        item_id = str(item.get("id") or "")
+        if item_id and item_id != str(manter_id):
+            try:
+                supabase.table(TABELA_AGENDAMENTOS).update({
+                    "status_agendamento": "Cancelado",
+                    "observacao": (
+                        (str(item.get("observacao") or "").strip() + " ")
+                        + "Cancelado automaticamente por substituição/reagendamento."
+                    ).strip(),
+                    "atualizado_em": agora_utc_iso(),
+                }).eq("id", item_id).execute()
+            except Exception:
+                pass
+    carregar_agendamentos.clear()
 
 
 @st.cache_data(ttl=30)
@@ -1806,11 +1853,11 @@ def carregar_agendamentos() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def verificar_conflito_agenda(advogado_id: str, data_agendamento, hora_inicio, hora_fim) -> bool:
+def verificar_conflito_agenda(advogado_id: str, data_agendamento, hora_inicio, hora_fim, agendamento_ignorar_id: str | None = None) -> bool:
     try:
         resp = (
             supabase.table(TABELA_AGENDAMENTOS)
-            .select("hora_inicio,hora_fim,status_agendamento")
+            .select("id,hora_inicio,hora_fim,status_agendamento")
             .eq("advogado_id", advogado_id)
             .eq("data_agendamento", data_agendamento.isoformat())
             .execute()
@@ -1818,6 +1865,8 @@ def verificar_conflito_agenda(advogado_id: str, data_agendamento, hora_inicio, h
         novo_hi = hora_inicio.strftime("%H:%M")
         novo_hf = hora_fim.strftime("%H:%M")
         for item in (resp.data or []):
+            if agendamento_ignorar_id and str(item.get("id") or "") == str(agendamento_ignorar_id):
+                continue
             if item.get("status_agendamento") == "Cancelado":
                 continue
             hi = str(item.get("hora_inicio") or "")[:5]
@@ -4579,6 +4628,7 @@ elif pagina == "Atualizar Cliente":
     lead_label = st.selectbox("Selecione o cliente", df_busca["label"].tolist())
     lead = df_busca[df_busca["label"] == lead_label].iloc[0]
     lead_id = str(lead["id"])
+    agendamento_ativo = buscar_agendamento_ativo_por_lead(lead_id)
 
     st.markdown("### Ficha do Cliente")
     c1, c2, c3 = st.columns(3)
@@ -4621,16 +4671,38 @@ elif pagina == "Atualizar Cliente":
             st.caption("Preencha quando o status for Agendado.")
             advogados_agenda = listar_advogados_ativos()
             nomes_advogados = [u.get("nome") for u in advogados_agenda]
-            advogado_agenda_nome = st.selectbox("Advogado responsável", [""] + nomes_advogados)
-            data_agenda = st.date_input("Data do atendimento", value=date.today())
-            hora_inicio_agenda = st.time_input(
-                "Hora inicial",
-                value=datetime.strptime("09:00", "%H:%M").time(),
+            advogado_atual = str((agendamento_ativo or {}).get("advogado_nome") or "")
+            opcoes_advogados = [""] + nomes_advogados
+            idx_advogado = opcoes_advogados.index(advogado_atual) if advogado_atual in opcoes_advogados else 0
+            advogado_agenda_nome = st.selectbox("Advogado responsável", opcoes_advogados, index=idx_advogado)
+
+            data_agenda_atual = pd.to_datetime(
+                (agendamento_ativo or {}).get("data_agendamento"), errors="coerce"
             )
+            data_agenda_padrao = data_agenda_atual.date() if not pd.isna(data_agenda_atual) else hoje_manaus()
+            data_agenda = st.date_input("Data do atendimento", value=data_agenda_padrao)
+
+            hora_inicio_atual = str((agendamento_ativo or {}).get("hora_inicio") or "09:00")[:5]
+            try:
+                hora_inicio_padrao = datetime.strptime(hora_inicio_atual, "%H:%M").time()
+            except Exception:
+                hora_inicio_padrao = datetime.strptime("09:00", "%H:%M").time()
+            hora_inicio_agenda = st.time_input("Hora inicial", value=hora_inicio_padrao)
+
+            duracoes = [15, 30, 45, 60, 90, 120]
+            duracao_atual = 30
+            try:
+                hi = datetime.strptime(str((agendamento_ativo or {}).get("hora_inicio") or "09:00")[:5], "%H:%M")
+                hf = datetime.strptime(str((agendamento_ativo or {}).get("hora_fim") or "09:30")[:5], "%H:%M")
+                minutos = int((hf - hi).total_seconds() // 60)
+                if minutos in duracoes:
+                    duracao_atual = minutos
+            except Exception:
+                pass
             duracao_agenda = st.selectbox(
                 "Duração prevista",
-                [15, 30, 45, 60, 90, 120],
-                index=1,
+                duracoes,
+                index=duracoes.index(duracao_atual),
                 format_func=lambda x: f"{x} minutos",
             )
         with col2:
@@ -4639,30 +4711,37 @@ elif pagina == "Atualizar Cliente":
             motivo_perda = st.selectbox("Motivo da perda", MOTIVOS_PERDA, index=idx_motivo)
             observacao_atual = lead.get("observacao") or ""
             observacao_principal = st.text_area("Observação principal do cliente", value=observacao_atual)
+            modalidade_atual = str((agendamento_ativo or {}).get("modalidade") or "Presencial")
+            idx_modalidade = MODALIDADES_AGENDAMENTO.index(modalidade_atual) if modalidade_atual in MODALIDADES_AGENDAMENTO else 0
             modalidade_agenda = st.selectbox(
                 "Modalidade do atendimento",
                 MODALIDADES_AGENDAMENTO,
+                index=idx_modalidade,
                 key="modalidade_agendamento_cliente",
             )
 
+            local_contato_atual = str((agendamento_ativo or {}).get("local_atendimento") or "")
             local_agenda = ""
             link_agenda = ""
 
             if modalidade_agenda == "Presencial":
                 local_agenda = st.text_input(
                     "Local do atendimento",
+                    value=local_contato_atual if modalidade_atual == "Presencial" else "",
                     placeholder="Ex.: Escritório Boa Vista, sala 2",
                     key="local_agendamento_cliente",
                 )
             elif modalidade_agenda == "Videochamada":
                 link_agenda = st.text_input(
                     "Link da reunião",
+                    value=local_contato_atual if modalidade_atual == "Videochamada" else "",
                     placeholder="Ex.: https://meet.google.com/...",
                     key="link_agendamento_cliente",
                 )
             elif modalidade_agenda == "WhatsApp":
                 link_agenda = st.text_input(
                     "Número ou link do WhatsApp",
+                    value=local_contato_atual if modalidade_atual == "WhatsApp" else "",
                     placeholder="Ex.: (95) 99999-9999 ou link do WhatsApp",
                     key="whatsapp_agendamento_cliente",
                 )
@@ -4671,6 +4750,7 @@ elif pagina == "Atualizar Cliente":
 
             observacao_agenda = st.text_area(
                 "Observação do agendamento",
+                value=str((agendamento_ativo or {}).get("observacao") or ""),
                 key="observacao_agendamento_cliente",
             )
 
@@ -4717,16 +4797,18 @@ elif pagina == "Atualizar Cliente":
                     fim_dt = inicio_dt + timedelta(minutes=int(duracao_agenda))
                     hora_fim_agenda = fim_dt.time()
 
+                    agendamento_id_atual = str((agendamento_ativo or {}).get("id") or "")
                     if verificar_conflito_agenda(
                         str(advogado_agenda.get("id")),
                         data_agenda,
                         hora_inicio_agenda,
                         hora_fim_agenda,
+                        agendamento_ignorar_id=agendamento_id_atual or None,
                     ):
                         st.error("Esse advogado já possui atendimento nesse horário.")
                         st.stop()
 
-                    salvar_agendamento({
+                    dados_agendamento = {
                         "lead_id": lead_id,
                         "cliente_nome": lead.get("nome_cliente"),
                         "telefone": lead.get("telefone"),
@@ -4746,19 +4828,34 @@ elif pagina == "Atualizar Cliente":
                         ),
                         "observacao": observacao_agenda.strip(),
                         "status_agendamento": "Agendado",
-                        "criado_por_id": str(usuario.get("id")),
-                        "criado_por_nome": usuario.get("nome"),
-                    })
+                        "atualizado_em": agora_utc_iso(),
+                    }
+
+                    if agendamento_id_atual:
+                        atualizar_agendamento(agendamento_id_atual, dados_agendamento)
+                        cancelar_agendamentos_duplicados(lead_id, agendamento_id_atual)
+                        acao_agendamento = "Agendamento atualizado"
+                    else:
+                        dados_agendamento.update({
+                            "criado_por_id": str(usuario.get("id")),
+                            "criado_por_nome": usuario.get("nome"),
+                        })
+                        resp_ag = salvar_agendamento(dados_agendamento)
+                        novo_agendamento_id = str((resp_ag.data or [{}])[0].get("id") or "") if hasattr(resp_ag, "data") else ""
+                        carregar_agendamentos.clear()
+                        if novo_agendamento_id:
+                            cancelar_agendamentos_duplicados(lead_id, novo_agendamento_id)
+                        acao_agendamento = "Agendamento criado"
 
                     salvar_historico(
                         lead_id,
                         usuario["nome"],
                         "Agendado",
-                        f"Atendimento agendado para {data_agenda.strftime('%d/%m/%Y')} às "
+                        f"Atendimento definido para {data_agenda.strftime('%d/%m/%Y')} às "
                         f"{hora_inicio_agenda.strftime('%H:%M')} com {advogado_agenda_nome}. "
                         f"Modalidade: {modalidade_agenda}. "
                         f"Local/contato: {(local_agenda.strip() if modalidade_agenda == 'Presencial' else link_agenda.strip()) or 'Não informado'}.",
-                        "Agendamento criado",
+                        acao_agendamento,
                     )
                 else:
                     texto_hist = observacao_atendimento.strip() or f"Status alterado para {status}."
