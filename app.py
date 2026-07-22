@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-72-reagendamento-unico"
+VERSAO_APP = "app-73-agenda-unica-cores"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -1905,15 +1905,106 @@ def cancelar_agendamentos_duplicados(
             observacao_antiga = str(item.get("observacao") or "").strip()
             observacao_nova = (
                 f"{observacao_antiga} " if observacao_antiga else ""
-            ) + "Cancelado automaticamente porque o atendimento foi reagendado."
+            ) + "Remarcado automaticamente porque existe um agendamento mais recente para o cliente."
 
             supabase.table(TABELA_AGENDAMENTOS).update({
-                "status_agendamento": "Cancelado",
+                "status_agendamento": "Remarcado",
                 "observacao": observacao_nova,
                 "atualizado_em": agora_utc_iso(),
             }).eq("id", item_id).execute()
     finally:
         carregar_agendamentos.clear()
+
+
+def consolidar_agendamentos_ativos() -> int:
+    """Mantém somente um agendamento ativo por cliente.
+
+    Registros antigos criados por versões anteriores são marcados como
+    ``Remarcado``. O compromisso preservado é o registro alterado/criado mais
+    recentemente; na ausência desses campos, usa a maior data/hora do
+    atendimento. Retorna a quantidade de registros corrigidos.
+    """
+    try:
+        resp = (
+            supabase.table(TABELA_AGENDAMENTOS)
+            .select("*")
+            .execute()
+        )
+        rows = resp.data or []
+        if not rows:
+            return 0
+
+        ativos = {"", "Agendado", "Confirmado"}
+        grupos: dict[str, list[dict]] = {}
+
+        for row in rows:
+            status = str(row.get("status_agendamento") or "").strip()
+            if status not in ativos:
+                continue
+
+            lead_id = str(row.get("lead_id") or "").strip()
+            telefone = apenas_digitos(row.get("telefone") or "")
+            nome = normalizar_texto(row.get("cliente_nome") or "").strip().casefold()
+
+            # Prioridade de identidade: cliente vinculado, telefone e nome.
+            if lead_id:
+                chave = f"lead:{lead_id}"
+            elif telefone:
+                chave = f"tel:{telefone}"
+            elif nome:
+                chave = f"nome:{nome}"
+            else:
+                continue
+            grupos.setdefault(chave, []).append(row)
+
+        corrigidos = 0
+
+        def chave_ordenacao(row: dict):
+            atualizado = pd.to_datetime(row.get("atualizado_em"), errors="coerce", utc=True)
+            criado = pd.to_datetime(row.get("criado_em"), errors="coerce", utc=True)
+            data = pd.to_datetime(row.get("data_agendamento"), errors="coerce")
+            hora = str(row.get("hora_inicio") or "00:00")[:5]
+            try:
+                data_hora = pd.Timestamp(f"{data.date().isoformat()} {hora}") if not pd.isna(data) else pd.Timestamp.min
+            except Exception:
+                data_hora = pd.Timestamp.min
+            # O último registro efetivamente editado deve prevalecer.
+            movimento = atualizado if not pd.isna(atualizado) else criado
+            if pd.isna(movimento):
+                movimento = pd.Timestamp.min.tz_localize("UTC")
+            return (movimento, data_hora)
+
+        for itens in grupos.values():
+            if len(itens) <= 1:
+                continue
+            manter = max(itens, key=chave_ordenacao)
+            manter_id = str(manter.get("id") or "")
+            destino = (
+                f"{pd.to_datetime(manter.get('data_agendamento'), errors='coerce').strftime('%d/%m/%Y')} "
+                f"às {str(manter.get('hora_inicio') or '')[:5]}"
+            )
+
+            for antigo in itens:
+                antigo_id = str(antigo.get("id") or "")
+                if not antigo_id or antigo_id == manter_id:
+                    continue
+                observacao = str(antigo.get("observacao") or "").strip()
+                complemento = f"Remarcado automaticamente para {destino}."
+                if complemento not in observacao:
+                    observacao = f"{observacao} {complemento}".strip()
+                supabase.table(TABELA_AGENDAMENTOS).update({
+                    "status_agendamento": "Remarcado",
+                    "observacao": observacao,
+                    "atualizado_em": agora_utc_iso(),
+                }).eq("id", antigo_id).execute()
+                corrigidos += 1
+
+        if corrigidos:
+            carregar_agendamentos.clear()
+        return corrigidos
+    except Exception:
+        # A agenda continua funcionando mesmo se a limpeza automática falhar.
+        return 0
 
 
 @st.cache_data(ttl=30)
@@ -3774,9 +3865,12 @@ elif pagina == "Insights V360":
 # -------------------------------
 elif pagina == "Agenda de Atendimentos":
     st.title("📅 Agenda de Atendimentos")
-    st.caption("Agenda ativa no fuso de Manaus. Cancelados ficam ocultos por padrão, mas permanecem no histórico.")
+    st.caption("Agenda ativa no fuso de Manaus. Cancelados e horários antigos remarcados ficam ocultos por padrão.")
 
+    corrigidos_agenda = consolidar_agendamentos_ativos()
     df_agenda = carregar_agendamentos()
+    if corrigidos_agenda:
+        st.success(f"{corrigidos_agenda} agendamento(s) antigo(s) foram removidos da agenda ativa e marcados como remarcados.")
     if df_agenda.empty:
         st.info("Nenhum atendimento agendado.")
         st.stop()
@@ -3793,15 +3887,15 @@ elif pagina == "Agenda de Atendimentos":
     df_agenda["status_agendamento"] = df_agenda["status_agendamento"].fillna("Agendado")
     hoje_agenda = hoje_manaus()
 
-    mostrar_cancelados = st.toggle(
-        "Mostrar atendimentos cancelados",
+    mostrar_historicos = st.toggle(
+        "Mostrar cancelados e remarcados",
         value=False,
-        help="Os cancelados continuam salvos e podem ser consultados ao ativar esta opção.",
-        key="agenda_mostrar_cancelados",
+        help="Cancelados e horários antigos remarcados permanecem salvos para auditoria.",
+        key="agenda_mostrar_historicos",
     )
 
-    if not mostrar_cancelados:
-        df_agenda = df_agenda[df_agenda["status_agendamento"] != "Cancelado"].copy()
+    if not mostrar_historicos:
+        df_agenda = df_agenda[~df_agenda["status_agendamento"].isin(["Cancelado", "Remarcado"])].copy()
 
     f1, f2, f3, f4 = st.columns(4)
     with f1:
@@ -3813,7 +3907,7 @@ elif pagina == "Agenda de Atendimentos":
     with f4:
         advogado_ag = st.multiselect("Advogado", sorted([x for x in df_agenda["advogado_nome"].dropna().unique().tolist() if x]))
 
-    status_disponiveis = STATUS_AGENDAMENTO if mostrar_cancelados else [s for s in STATUS_AGENDAMENTO if s != "Cancelado"]
+    status_disponiveis = STATUS_AGENDAMENTO if mostrar_historicos else [s for s in STATUS_AGENDAMENTO if s not in ["Cancelado", "Remarcado"]]
     f5, f6, f7, f8 = st.columns(4)
     with f5:
         status_ag = st.multiselect("Situação", status_disponiveis, default=status_disponiveis)
