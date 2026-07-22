@@ -38,7 +38,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "producao-v360-cidade-boa-vista-corrigida"
+VERSAO_APP = "app-66-render-corrigido"
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -64,6 +64,11 @@ def conectar_supabase() -> Client:
         st.stop()
 
     return create_client(url, key)
+
+# Cliente global utilizado pelas funções do sistema.
+# No Render, as credenciais vêm das variáveis de ambiente;
+# no Streamlit Cloud, o fallback continua sendo st.secrets.
+supabase = conectar_supabase()
 
 # -------------------------------
 # LISTAS PADRÃO
@@ -2280,7 +2285,7 @@ if perfil in ["captador", "atendente"]:
     header_mobile()
 
     opcoes_atendente = ["➕ Novo Cliente", "📋 Minhas", "📎 Documentos", "📌 Pendências"]
-    mapa_atendente = {"➕ Novo Cliente": "Novo Cliente", "📋 Meus": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
+    mapa_atendente = {"➕ Novo Cliente": "Novo Cliente", "📋 Minhas": "Minhas Clientes", "📎 Documentos": "Documentos", "📌 Pendências": "Pendências"}
     pagina_atual_label = next((k for k, v in mapa_atendente.items() if v == st.session_state.atendente_pagina), "➕ Novo Cliente")
     st.markdown("<div class='mobile-nav-box'>", unsafe_allow_html=True)
     nav_escolhida = st.radio(
