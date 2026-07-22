@@ -4,6 +4,7 @@ from datetime import date, timedelta, datetime, timezone
 import uuid
 import io
 import zipfile
+import os
 
 import pandas as pd
 import plotly.express as px
@@ -44,14 +45,25 @@ VERSAO_APP = "producao-v360-cidade-boa-vista-corrigida"
 # -------------------------------
 @st.cache_resource
 def conectar_supabase() -> Client:
-    url = st.secrets.get("SUPABASE_URL", "")
-    key = st.secrets.get("SUPABASE_ANON_KEY", "")
-    if not url or not key:
-        st.error("Configure SUPABASE_URL e SUPABASE_ANON_KEY no secrets do Streamlit.")
-        st.stop()
-    return create_client(url, key)
+    # Primeiro tenta variáveis de ambiente (Render)
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_ANON_KEY")
 
-supabase = conectar_supabase()
+    # Se não encontrar, usa st.secrets (Streamlit Cloud)
+    if not url or not key:
+        try:
+            url = url or st.secrets.get("SUPABASE_URL", "")
+            key = key or st.secrets.get("SUPABASE_ANON_KEY", "")
+        except Exception:
+            pass
+
+    if not url or not key:
+        st.error(
+            "SUPABASE_URL e SUPABASE_ANON_KEY não configuradas."
+        )
+        st.stop()
+
+    return create_client(url, key)
 
 # -------------------------------
 # LISTAS PADRÃO
