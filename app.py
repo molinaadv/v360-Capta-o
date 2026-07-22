@@ -783,6 +783,7 @@ def substituir_usuario_unidades(usuario_id: str, unidades: list[str]):
     vincular_usuario_unidades(usuario_id, unidades)
 
 
+@st.cache_data(ttl=600)
 def listar_beneficios():
     try:
         resp = (
@@ -798,6 +799,7 @@ def listar_beneficios():
         return TIPOS_BENEFICIO
 
 
+@st.cache_data(ttl=600)
 def listar_locais_captacao():
     try:
         resp = (
@@ -812,6 +814,7 @@ def listar_locais_captacao():
         return []
 
 
+@st.cache_data(ttl=600)
 def listar_tipos_arquivo():
     try:
         resp = (
@@ -851,6 +854,7 @@ def normalizar_nome_unidade(nome: str, cidade: str = "", estado: str = "") -> st
     return normalizar_texto(nome).strip()
 
 
+@st.cache_data(ttl=600)
 def listar_unidades(apenas_ativas: bool = True) -> list[dict]:
     try:
         q = supabase.table(TABELA_UNIDADES).select("*")
@@ -1218,6 +1222,7 @@ def cidades_permitidas_usuario(usuario: dict, unidade_nome: str) -> list[str]:
     return cidades_filtradas or todas
 
 
+@st.cache_data(ttl=600)
 def listar_bairros_por_cidade(estado: str, cidade: str) -> list[str]:
     """
     Busca bairros no Supabase. Se o Supabase não retornar, usa lista fixa local
@@ -1281,6 +1286,7 @@ def criar_bairro_cidade(estado: str, cidade: str, bairro: str):
 
 
 
+@st.cache_data(ttl=600)
 def listar_cidades_cadastradas(estado: str | None = None) -> list[str]:
     """
     Lista cidades cadastradas. Usa a tabela de bairros como base:
@@ -1555,6 +1561,7 @@ def criar_unidade(nome: str, cidade: str, estado: str):
     }
     return supabase.table(TABELA_UNIDADES).insert(dados).execute()
 
+@st.cache_data(ttl=600)
 def listar_tipos_pendencia():
     try:
         resp = (
@@ -1582,6 +1589,7 @@ def atualizar_pendencia(pendencia_id: str, dados: dict):
     return supabase.table(TABELA_PENDENCIAS).update(dados).eq("id", pendencia_id).execute()
 
 
+@st.cache_data(ttl=30)
 def carregar_pendencias() -> pd.DataFrame:
     try:
         resp = (
@@ -1726,6 +1734,7 @@ def transferir_leads_em_lote(
     }
 
     supabase.table(TABELA_LEADS).update(dados_update).in_("id", lead_ids).execute()
+    carregar_leads.clear()
 
     texto_motivo = motivo.strip()
     for lead_id in lead_ids:
@@ -1750,6 +1759,7 @@ def transferir_leads_em_lote(
 
 
 
+@st.cache_data(ttl=600)
 def listar_advogados_ativos() -> list[dict]:
     usuarios = listar_usuarios_ativos()
     perfis_validos = {"advogado", "gestor", "gestor_geral", "gestor_regional", "gestor_unidade"}
@@ -1764,6 +1774,7 @@ def atualizar_agendamento(agendamento_id: str, dados: dict):
     return supabase.table(TABELA_AGENDAMENTOS).update(dados).eq("id", agendamento_id).execute()
 
 
+@st.cache_data(ttl=30)
 def carregar_agendamentos() -> pd.DataFrame:
     try:
         resp = (
@@ -1847,6 +1858,7 @@ def montar_calendario_mensal(df_agenda: pd.DataFrame, ano: int, mes: int) -> str
     return html + "</div>"
 
 
+@st.cache_data(ttl=30)
 def carregar_leads():
     try:
         resp = (
@@ -1865,7 +1877,9 @@ def carregar_leads():
 
 
 def salvar_lead(dados: dict):
-    return supabase.table(TABELA_LEADS).insert(dados).execute()
+    resp = supabase.table(TABELA_LEADS).insert(dados).execute()
+    carregar_leads.clear()
+    return resp
 
 
 def garantir_observacao_lead(lead_id: str, observacao: str) -> bool:
@@ -1915,7 +1929,9 @@ def garantir_observacao_lead(lead_id: str, observacao: str) -> bool:
 
 
 def atualizar_lead(lead_id: str, dados: dict):
-    return supabase.table(TABELA_LEADS).update(dados).eq("id", lead_id).execute()
+    resp = supabase.table(TABELA_LEADS).update(dados).eq("id", lead_id).execute()
+    carregar_leads.clear()
+    return resp
 
 def caminho_arquivo_storage(lead_id: str, nome_arquivo: str) -> str:
     nome_limpo = "".join(ch if ch.isalnum() or ch in ".-_" else "_" for ch in nome_arquivo)
