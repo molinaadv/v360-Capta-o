@@ -1,6 +1,8 @@
 import base64
 from pathlib import Path
 from datetime import date, timedelta, datetime, timezone
+from zoneinfo import ZoneInfo
+import html
 import uuid
 import io
 import zipfile
@@ -38,7 +40,18 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-66-render-corrigido"
+VERSAO_APP = "app-70-central-pendencias-agenda-manaus"
+
+FUSO_MANAUS = ZoneInfo("America/Manaus")
+
+def agora_manaus() -> datetime:
+    return datetime.now(FUSO_MANAUS)
+
+def hoje_manaus() -> date:
+    return agora_manaus().date()
+
+def agora_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 # -------------------------------
 # CONEXÃO SUPABASE
@@ -1818,44 +1831,92 @@ def verificar_conflito_agenda(advogado_id: str, data_agendamento, hora_inicio, h
 
 def montar_calendario_mensal(df_agenda: pd.DataFrame, ano: int, mes: int) -> str:
     import calendar
+
     nomes_dias = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
     semanas = calendar.Calendar(firstweekday=0).monthdayscalendar(ano, mes)
     eventos = {}
+    agora_local = agora_manaus()
+
     if not df_agenda.empty:
         for _, row in df_agenda.iterrows():
             data_val = row.get("data_agendamento")
             if pd.isna(data_val):
                 continue
-            eventos.setdefault(int(pd.to_datetime(data_val).day), []).append(row)
+            dia_evento = int(pd.to_datetime(data_val).day)
+            eventos.setdefault(dia_evento, []).append(row)
 
-    html = """
+    cores_status = {
+        "Agendado": ("#EAF7FF", "#18BDF2"),
+        "Confirmado": ("#ECFDF3", "#22C55E"),
+        "Remarcado": ("#FFF8E1", "#F59E0B"),
+        "Atendido": ("#F3E8FF", "#8B5CF6"),
+        "Não compareceu": ("#FFF1F2", "#EF4444"),
+        "Cancelado": ("#F1F5F9", "#94A3B8"),
+    }
+
+    html_cal = """
     <style>
-    .agenda-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+    .agenda-grid{display:grid;grid-template-columns:repeat(7,minmax(135px,1fr));gap:6px;overflow-x:auto}
     .agenda-head{font-weight:900;text-align:center;padding:8px;background:#EAF4FC;border-radius:8px}
     .agenda-day{min-height:120px;border:1px solid #DCE8F4;border-radius:10px;padding:8px;background:#FFF}
     .agenda-day-muted{background:#F7F9FC}
     .agenda-num{font-weight:900;margin-bottom:6px}
-    .agenda-event{font-size:12px;background:#EAF7FF;border-left:4px solid #18BDF2;border-radius:7px;padding:5px 6px;margin:4px 0}
+    .agenda-event{font-size:12px;border-left:4px solid #18BDF2;border-radius:7px;padding:5px 6px;margin:4px 0;line-height:1.35}
+    .agenda-event-overdue{outline:2px solid #EF4444;box-shadow:0 0 0 2px rgba(239,68,68,.08)}
+    .agenda-event-cancelado{text-decoration:line-through;opacity:.68}
+    .agenda-overdue-label{font-size:10px;font-weight:900;color:#B91C1C;margin-top:3px}
     </style><div class="agenda-grid">
     """
+
     for nome in nomes_dias:
-        html += f'<div class="agenda-head">{nome}</div>'
+        html_cal += f'<div class="agenda-head">{nome}</div>'
+
     for semana in semanas:
         for dia in semana:
             if dia == 0:
-                html += '<div class="agenda-day agenda-day-muted"></div>'
+                html_cal += '<div class="agenda-day agenda-day-muted"></div>'
                 continue
-            html += f'<div class="agenda-day"><div class="agenda-num">{dia}</div>'
-            for row in eventos.get(dia, [])[:4]:
+
+            html_cal += f'<div class="agenda-day"><div class="agenda-num">{dia}</div>'
+            eventos_dia = eventos.get(dia, [])
+
+            for row in eventos_dia[:4]:
                 hora = str(row.get("hora_inicio") or "")[:5]
-                cliente = str(row.get("cliente_nome") or "Cliente")
-                advogado = str(row.get("advogado_nome") or "")
-                html += f'<div class="agenda-event"><b>{hora}</b> — {cliente}<br>{advogado}</div>'
-            extra = len(eventos.get(dia, [])) - 4
+                cliente = html.escape(str(row.get("cliente_nome") or "Cliente"))
+                advogado = html.escape(str(row.get("advogado_nome") or ""))
+                status = str(row.get("status_agendamento") or "Agendado")
+                fundo, borda = cores_status.get(status, ("#EAF7FF", "#18BDF2"))
+
+                data_evento = pd.to_datetime(row.get("data_agendamento"), errors="coerce")
+                atrasado = False
+                if not pd.isna(data_evento) and hora:
+                    try:
+                        hora_obj = datetime.strptime(hora, "%H:%M").time()
+                        dt_evento = datetime.combine(data_evento.date(), hora_obj, tzinfo=FUSO_MANAUS)
+                        atrasado = dt_evento < agora_local and status in {"Agendado", "Confirmado", "Remarcado"}
+                    except Exception:
+                        atrasado = False
+
+                classes = ["agenda-event"]
+                if atrasado:
+                    classes.append("agenda-event-overdue")
+                if status == "Cancelado":
+                    classes.append("agenda-event-cancelado")
+
+                html_cal += (
+                    f'<div class="{" ".join(classes)}" style="background:{fundo};border-left-color:{borda}">'
+                    f'<b>{hora}</b> — {cliente}<br>{advogado}<br><small>{html.escape(status)}</small>'
+                )
+                if atrasado:
+                    html_cal += '<div class="agenda-overdue-label">⚠ HORÁRIO PASSOU</div>'
+                html_cal += '</div>'
+
+            extra = len(eventos_dia) - 4
             if extra > 0:
-                html += f'<div class="agenda-event">+ {extra} atendimento(s)</div>'
-            html += "</div>"
-    return html + "</div>"
+                html_cal += f'<div class="agenda-event" style="background:#EEF6FB">+ {extra} atendimento(s)</div>'
+            html_cal += "</div>"
+
+    return html_cal + "</div>"
 
 
 @st.cache_data(ttl=30)
@@ -3582,7 +3643,7 @@ elif pagina == "Insights V360":
 # -------------------------------
 elif pagina == "Agenda de Atendimentos":
     st.title("📅 Agenda de Atendimentos")
-    st.caption("Visualize, filtre e atualize os atendimentos agendados.")
+    st.caption("Agenda ativa no fuso de Manaus. Cancelados ficam ocultos por padrão, mas permanecem no histórico.")
 
     df_agenda = carregar_agendamentos()
     if df_agenda.empty:
@@ -3599,20 +3660,32 @@ elif pagina == "Agenda de Atendimentos":
             df_agenda[col] = ""
 
     df_agenda["status_agendamento"] = df_agenda["status_agendamento"].fillna("Agendado")
+    hoje_agenda = hoje_manaus()
+
+    mostrar_cancelados = st.toggle(
+        "Mostrar atendimentos cancelados",
+        value=False,
+        help="Os cancelados continuam salvos e podem ser consultados ao ativar esta opção.",
+        key="agenda_mostrar_cancelados",
+    )
+
+    if not mostrar_cancelados:
+        df_agenda = df_agenda[df_agenda["status_agendamento"] != "Cancelado"].copy()
 
     f1, f2, f3, f4 = st.columns(4)
     with f1:
-        data_ini_ag = st.date_input("Data inicial", value=date.today(), key="agenda_data_ini")
+        data_ini_ag = st.date_input("Data inicial", value=hoje_agenda, key="agenda_data_ini")
     with f2:
-        data_fim_ag = st.date_input("Data final", value=date.today() + timedelta(days=30), key="agenda_data_fim")
+        data_fim_ag = st.date_input("Data final", value=hoje_agenda + timedelta(days=30), key="agenda_data_fim")
     with f3:
         unidade_ag = st.multiselect("Unidade", sorted([x for x in df_agenda["unidade"].dropna().unique().tolist() if x]))
     with f4:
         advogado_ag = st.multiselect("Advogado", sorted([x for x in df_agenda["advogado_nome"].dropna().unique().tolist() if x]))
 
+    status_disponiveis = STATUS_AGENDAMENTO if mostrar_cancelados else [s for s in STATUS_AGENDAMENTO if s != "Cancelado"]
     f5, f6, f7, f8 = st.columns(4)
     with f5:
-        status_ag = st.multiselect("Situação", STATUS_AGENDAMENTO, default=STATUS_AGENDAMENTO)
+        status_ag = st.multiselect("Situação", status_disponiveis, default=status_disponiveis)
     with f6:
         modalidade_ag = st.multiselect("Modalidade", MODALIDADES_AGENDAMENTO)
     with f7:
@@ -3641,31 +3714,31 @@ elif pagina == "Agenda de Atendimentos":
             | df_f["telefone"].fillna("").astype(str).str.lower().str.contains(termo, na=False)
         ]
 
-    st.caption(f"{len(df_f)} atendimento(s) encontrado(s).")
+    st.caption(f"{len(df_f)} atendimento(s) encontrado(s). Horário local: {agora_manaus().strftime('%d/%m/%Y %H:%M')}.")
 
     tab_cal, tab_lista = st.tabs(["🗓️ Calendário mensal", "📋 Lista de atendimentos"])
 
     with tab_cal:
-        hoje = date.today()
         c1, c2 = st.columns(2)
         with c1:
             mes_ag = st.selectbox(
                 "Mês",
                 list(range(1, 13)),
-                index=hoje.month - 1,
+                index=hoje_agenda.month - 1,
                 format_func=lambda m: [
                     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
                 ][m - 1],
             )
         with c2:
-            ano_ag = st.number_input("Ano", min_value=2020, max_value=2100, value=hoje.year, step=1)
+            ano_ag = st.number_input("Ano", min_value=2020, max_value=2100, value=hoje_agenda.year, step=1)
 
         df_mes = df_f[
             (pd.to_datetime(df_f["data_agendamento"], errors="coerce").dt.month == mes_ag)
             & (pd.to_datetime(df_f["data_agendamento"], errors="coerce").dt.year == int(ano_ag))
         ]
         st.markdown(montar_calendario_mensal(df_mes, int(ano_ag), int(mes_ag)), unsafe_allow_html=True)
+        st.caption("Azul: agendado • Verde: confirmado • Amarelo: remarcado • Roxo: atendido • Vermelho: não compareceu • Cinza: cancelado")
 
     with tab_lista:
         if df_f.empty:
@@ -3680,28 +3753,22 @@ elif pagina == "Agenda de Atendimentos":
             ]
             st.dataframe(
                 df_lista[cols].rename(columns={
-                    "data": "Data",
-                    "hora_inicio": "Início",
-                    "hora_fim": "Fim",
-                    "cliente_nome": "Cliente",
-                    "telefone": "Telefone",
-                    "advogado_nome": "Advogado",
-                    "tipo_beneficio": "Benefício",
-                    "unidade": "Unidade",
-                    "cidade": "Cidade",
-                    "modalidade": "Modalidade",
-                    "local_atendimento": "Local",
-                    "status_agendamento": "Situação",
+                    "data": "Data", "hora_inicio": "Início", "hora_fim": "Fim",
+                    "cliente_nome": "Cliente", "telefone": "Telefone", "advogado_nome": "Advogado",
+                    "tipo_beneficio": "Benefício", "unidade": "Unidade", "cidade": "Cidade",
+                    "modalidade": "Modalidade", "local_atendimento": "Local", "status_agendamento": "Situação",
                 }),
                 use_container_width=True,
                 hide_index=True,
             )
 
+            df_f = df_f.copy()
             df_f["label_agenda"] = (
                 pd.to_datetime(df_f["data_agendamento"], errors="coerce").dt.strftime("%d/%m/%Y").fillna("")
                 + " " + df_f["hora_inicio"].fillna("").astype(str).str[:5]
                 + " | " + df_f["cliente_nome"].fillna("")
                 + " | " + df_f["advogado_nome"].fillna("")
+                + " | " + df_f["status_agendamento"].fillna("Agendado")
             )
             label = st.selectbox("Selecionar atendimento para atualizar", df_f["label_agenda"].tolist())
             ag = df_f[df_f["label_agenda"] == label].iloc[0]
@@ -3720,23 +3787,19 @@ elif pagina == "Agenda de Atendimentos":
                 atualizar_agendamento(str(ag.get("id")), {
                     "status_agendamento": novo_status,
                     "observacao": nova_obs.strip(),
-                    "atualizado_em": datetime.now(timezone.utc).isoformat(),
+                    "atualizado_em": agora_utc_iso(),
                 })
+                carregar_agendamentos.clear()
                 mapa_status = {
-                    "Atendido": "Em atendimento",
-                    "Não compareceu": "Em atendimento",
-                    "Cancelado": "Em atendimento",
-                    "Remarcado": "Agendado",
-                    "Confirmado": "Agendado",
-                    "Agendado": "Agendado",
+                    "Atendido": "Em atendimento", "Não compareceu": "Em atendimento",
+                    "Cancelado": "Em atendimento", "Remarcado": "Agendado",
+                    "Confirmado": "Agendado", "Agendado": "Agendado",
                 }
                 novo_status_lead = mapa_status.get(novo_status)
                 if ag.get("lead_id") and novo_status_lead:
                     atualizar_lead(str(ag.get("lead_id")), {"status_lead": novo_status_lead})
                     salvar_historico(
-                        str(ag.get("lead_id")),
-                        usuario.get("nome", ""),
-                        novo_status_lead,
+                        str(ag.get("lead_id")), usuario.get("nome", ""), novo_status_lead,
                         f"Agendamento atualizado para {novo_status}. {nova_obs.strip()}",
                         "Atualização de agendamento",
                     )
@@ -4186,121 +4249,169 @@ elif pagina == "Minhas Pendências":
 
 
 # -------------------------------
-# PENDÊNCIAS DOCUMENTAIS
+# CENTRAL DE PENDÊNCIAS V360
 # -------------------------------
 elif pagina == "Pendências":
-    st.title("📌 Pendências Documentais")
-    st.caption("Solicite documentos aos atendentes e acompanhe downloads da documentação.")
+    st.title("📌 Central de Pendências V360")
+    st.caption("Registre, distribua e acompanhe pendências de clientes cadastrados ou ainda não cadastrados.")
 
     df_leads_all = aplicar_escopo_unidade(carregar_leads(), usuario)
     usuarios_ativos = listar_usuarios_ativos()
     unidades_permitidas = unidades_permitidas_usuario(usuario)
+    hoje_pend = hoje_manaus()
 
-    tab_criar, tab_lista = st.tabs(["Abrir Pendência", "Acompanhar Pendências"])
+    dfp_base = filtrar_pendencias_por_escopo(carregar_pendencias(), usuario)
+    if not dfp_base.empty:
+        for col, padrao in {
+            "status": "Aberta", "prioridade": "Normal", "cliente_nao_cadastrado": False,
+            "prazo": None, "cliente_nome": "", "origem": "Manual",
+        }.items():
+            if col not in dfp_base.columns:
+                dfp_base[col] = padrao
+        prazo_base = pd.to_datetime(dfp_base["prazo"], errors="coerce").dt.date
+        abertas_base = ~dfp_base["status"].fillna("Aberta").isin(["Resolvida", "Cancelada"])
+        qtd_abertas = int(abertas_base.sum())
+        qtd_atrasadas = int((abertas_base & prazo_base.notna() & (prazo_base < hoje_pend)).sum())
+        qtd_hoje = int((abertas_base & prazo_base.notna() & (prazo_base == hoje_pend)).sum())
+        qtd_nao_cad = int(dfp_base["cliente_nao_cadastrado"].fillna(False).astype(bool).sum())
+        qtd_urgentes = int((abertas_base & dfp_base["prioridade"].fillna("Normal").isin(["Alta", "Urgente"])).sum())
+    else:
+        qtd_abertas = qtd_atrasadas = qtd_hoje = qtd_nao_cad = qtd_urgentes = 0
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("📌 Abertas", qtd_abertas)
+    c2.metric("⏰ Vencem hoje", qtd_hoje)
+    c3.metric("🚨 Atrasadas", qtd_atrasadas)
+    c4.metric("🟡 Não cadastrados", qtd_nao_cad)
+    c5.metric("🔥 Alta/Urgente", qtd_urgentes)
+
+    tab_criar, tab_lista = st.tabs(["➕ Nova Pendência", "📋 Acompanhar Pendências"])
 
     with tab_criar:
-        st.subheader("Abrir nova pendência")
-        if df_leads_all.empty:
-            st.info("Nenhum cliente disponível no seu escopo para abrir pendência.")
+        st.subheader("Nova pendência")
+        tipo_vinculo = st.radio(
+            "A quem pertence esta pendência?",
+            ["Cliente cadastrado", "Cliente não cadastrado"],
+            horizontal=True,
+            key="central_tipo_vinculo",
+        )
+        cliente_nao_cadastrado = tipo_vinculo == "Cliente não cadastrado"
+
+        lead = None
+        nome_cliente_p = cpf_p = telefone_p = cidade_p = bairro_p = unidade_pend = ""
+
+        if not cliente_nao_cadastrado:
+            if df_leads_all.empty:
+                st.warning("Não há clientes cadastrados no seu escopo. Use a opção Cliente não cadastrado.")
+            else:
+                df_select = df_leads_all.copy()
+                for col in ["nome_cliente", "cpf", "telefone", "cidade", "bairro", "captador_nome", "status_lead", "local_captacao", "unidade"]:
+                    if col not in df_select.columns:
+                        df_select[col] = ""
+                    df_select[col] = df_select[col].fillna("").astype(str)
+
+                b1, b2, b3 = st.columns([1.6, 1, 1])
+                with b1:
+                    termo_lead = st.text_input("Buscar por nome, CPF ou telefone", key="central_busca_cliente")
+                with b2:
+                    filtro_status_lead = st.selectbox("Status do cliente", ["Todos"] + sorted([x for x in df_select["status_lead"].unique().tolist() if x]), key="central_status_cliente")
+                with b3:
+                    filtro_atendente = st.selectbox("Atendente", ["Todos"] + sorted([x for x in df_select["captador_nome"].unique().tolist() if x]), key="central_atendente_cliente")
+
+                if termo_lead.strip():
+                    termo = termo_lead.strip().lower()
+                    termo_dig = apenas_digitos(termo_lead)
+                    mask = pd.Series(False, index=df_select.index)
+                    for col in ["nome_cliente", "cpf", "telefone", "bairro", "cidade"]:
+                        mask = mask | df_select[col].str.lower().str.contains(termo, na=False)
+                    if termo_dig:
+                        mask = mask | df_select["cpf"].apply(apenas_digitos).str.contains(termo_dig, na=False)
+                        mask = mask | df_select["telefone"].apply(apenas_digitos).str.contains(termo_dig, na=False)
+                    df_select = df_select[mask]
+                if filtro_status_lead != "Todos":
+                    df_select = df_select[df_select["status_lead"] == filtro_status_lead]
+                if filtro_atendente != "Todos":
+                    df_select = df_select[df_select["captador_nome"] == filtro_atendente]
+
+                if df_select.empty:
+                    st.warning("Nenhum cliente localizado com os filtros.")
+                else:
+                    df_select["label_lead"] = df_select.apply(label_lead, axis=1)
+                    lead_label = st.selectbox("Cliente", df_select["label_lead"].tolist(), key="central_cliente_select")
+                    lead = df_select[df_select["label_lead"] == lead_label].iloc[0]
+                    nome_cliente_p = lead.get("nome_cliente", "")
+                    cpf_p = lead.get("cpf", "")
+                    telefone_p = lead.get("telefone", "")
+                    cidade_p = lead.get("cidade", "")
+                    bairro_p = lead.get("bairro", "")
+                    unidade_pend = lead.get("unidade") or "Boa Vista"
+                    st.success(f"🟢 Cliente cadastrado: {nome_cliente_p}")
         else:
-            df_select = df_leads_all.copy()
-            for col in ["nome_cliente", "cpf", "telefone", "cidade", "bairro", "captador_nome", "status_lead", "local_captacao", "unidade"]:
-                if col not in df_select.columns:
-                    df_select[col] = ""
-                df_select[col] = df_select[col].fillna("").astype(str)
+            st.info("🟡 Será criada somente a pendência. Nenhum Lead/Cliente será cadastrado automaticamente.")
+            nc1, nc2 = st.columns(2)
+            with nc1:
+                nome_cliente_p = normalizar_texto(st.text_input("Nome do cliente *", key="central_nc_nome"))
+                cpf_p = limpar_cpf(st.text_input("CPF", key="central_nc_cpf"))
+                telefone_p = st.text_input("Telefone *", key="central_nc_telefone")
+                unidade_opcoes = unidades_permitidas or [u.get("nome") for u in listar_unidades(True) if u.get("nome")]
+                unidade_pend = st.selectbox("Unidade *", unidade_opcoes or ["Boa Vista"], key="central_nc_unidade")
+            with nc2:
+                cidade_p = selecionar_cidade_por_unidade(unidade_pend, key="central_nc_cidade")
+                bairro_p = selecionar_bairro_inline(cidade_p, key="central_nc_bairro")
 
-            st.markdown("#### 🔎 Buscar cliente")
-            col_busca1, col_busca2, col_busca3, col_busca4 = st.columns([1.4, 1, 1, 1])
-            with col_busca1:
-                termo_lead = st.text_input(
-                    "Nome, CPF ou telefone",
-                    placeholder="Digite parte do nome, CPF ou telefone...",
-                    key="pend_busca_lead",
-                )
-            with col_busca2:
-                status_opcoes = sorted([x for x in df_select["status_lead"].dropna().unique().tolist() if x])
-                filtro_status_lead = st.selectbox("Status do cliente", ["Todos"] + status_opcoes, key="pend_status_lead")
-            with col_busca3:
-                bairro_opcoes = sorted([x for x in df_select["bairro"].dropna().unique().tolist() if x])
-                filtro_bairro_lead = st.selectbox("Bairro", ["Todos"] + bairro_opcoes, key="pend_bairro_lead")
-            with col_busca4:
-                atendente_opcoes = sorted([x for x in df_select["captador_nome"].dropna().unique().tolist() if x])
-                filtro_captador_lead = st.selectbox("Atendente", ["Todos"] + atendente_opcoes, key="pend_atendente_lead")
+        with st.form("form_central_criar_pendencia"):
+            colp1, colp2, colp3 = st.columns(3)
+            with colp1:
+                tipo_pend = st.selectbox("Tipo de pendência *", listar_tipos_pendencia())
+                prioridade = st.selectbox("Prioridade", PRIORIDADE_PENDENCIA)
+            with colp2:
+                prazo = st.date_input("Prazo", hoje_pend + timedelta(days=3))
+                origem = st.selectbox("Origem", ["Manual", "WhatsApp", "IA", "Legal One", "API", "Importação"])
+            with colp3:
+                visibilidade = st.radio("Visibilidade", ["Todos os atendentes da unidade", "Atendente específico"])
+                atendentes = [u for u in usuarios_ativos if u.get("perfil") in ["captador", "atendente"]]
+                atendentes_escopo = []
+                for atendente in atendentes:
+                    us = listar_unidades_usuario(str(atendente.get("id", "")))
+                    unidade_c = atendente.get("unidade_padrao") or atendente.get("unidade") or atendente.get("unidade_nome")
+                    if unidade_c and unidade_c not in us:
+                        us.append(unidade_c)
+                    if usuario_eh_geral(usuario) or not unidades_permitidas or set(us).intersection(set(unidades_permitidas)):
+                        atendentes_escopo.append(atendente)
+                nomes_atendentes = [u.get("nome") for u in atendentes_escopo]
+                captador_nome = st.selectbox("Atendente", nomes_atendentes, disabled=visibilidade != "Atendente específico") if nomes_atendentes else ""
+            descricao = st.text_area("Descrição da pendência *", placeholder="Descreva exatamente o documento ou providência necessária.")
+            criar_p = st.form_submit_button("📌 Abrir pendência", type="primary")
 
-            if termo_lead:
-                termo_norm = termo_lead.lower().strip()
-                termo_dig = apenas_digitos(termo_lead)
-                mask_texto = (
-                    df_select["nome_cliente"].str.lower().str.contains(termo_norm, na=False) |
-                    df_select["bairro"].str.lower().str.contains(termo_norm, na=False) |
-                    df_select["cidade"].str.lower().str.contains(termo_norm, na=False) |
-                    df_select["local_captacao"].str.lower().str.contains(termo_norm, na=False) |
-                    df_select["captador_nome"].str.lower().str.contains(termo_norm, na=False)
-                )
-                if termo_dig:
-                    mask_texto = mask_texto | df_select["cpf"].apply(apenas_digitos).str.contains(termo_dig, na=False) | df_select["telefone"].apply(apenas_digitos).str.contains(termo_dig, na=False)
-                df_select = df_select[mask_texto]
-
-            if filtro_status_lead != "Todos":
-                df_select = df_select[df_select["status_lead"] == filtro_status_lead]
-            if filtro_bairro_lead != "Todos":
-                df_select = df_select[df_select["bairro"] == filtro_bairro_lead]
-            if filtro_captador_lead != "Todos":
-                df_select = df_select[df_select["captador_nome"] == filtro_captador_lead]
-
-            st.caption(f"{len(df_select)} cliente(s) encontrado(s) com os filtros selecionados.")
-
-            if df_select.empty:
-                st.warning("Nenhum cliente encontrado. Ajuste a busca ou limpe os filtros.")
-                st.stop()
-
-            df_select = df_select.sort_values("data_captacao", ascending=False) if "data_captacao" in df_select.columns else df_select
-            df_select["label_lead"] = df_select.apply(label_lead, axis=1)
-            with st.form("form_criar_pendencia"):
-                lead_label = st.selectbox("Cliente / Cliente", df_select["label_lead"].tolist())
-                lead = df_select[df_select["label_lead"] == lead_label].iloc[0]
-                colp1, colp2 = st.columns(2)
-                with colp1:
-                    tipo_pend = st.selectbox("Tipo de pendência", listar_tipos_pendencia())
-                    prioridade = st.selectbox("Prioridade", PRIORIDADE_PENDENCIA)
-                    prazo = st.date_input("Prazo", date.today() + timedelta(days=3))
-                with colp2:
-                    visibilidade = st.radio("Visibilidade", ["Todos os atendentes da unidade", "Atendente específico"], horizontal=False)
-                    atendentes = [u for u in usuarios_ativos if u.get("perfil") == "captador"]
-                    # Mantém somente atendentes do escopo do gestor quando possível
-                    atendentees_escopo = []
-                    for c in atendentes:
-                        us = listar_unidades_usuario(str(c.get("id", "")))
-                        unidade_c = c.get("unidade_padrao") or c.get("unidade") or c.get("unidade_nome")
-                        if unidade_c and unidade_c not in us:
-                            us.append(unidade_c)
-                        if not us:
-                            us = [lead.get("unidade", "Boa Vista")]
-                        if set(us).intersection(set(unidades_permitidas)):
-                            atendentees_escopo.append(c)
-                    nomes_capt = [c.get("nome") for c in atendentees_escopo]
-                    captador_nome = st.selectbox("Atendente", nomes_capt, disabled=(visibilidade == "Todos os atendentes da unidade")) if nomes_capt else ""
-                descricao = st.text_area("Descrição da pendência", placeholder="Ex.: Solicitar laudo médico atualizado e comprovante de residência.")
-                criar_p = st.form_submit_button("📌 Abrir pendência")
-
-            if criar_p:
+        if criar_p:
+            if not descricao.strip():
+                st.error("Informe a descrição da pendência.")
+            elif cliente_nao_cadastrado and (not nome_cliente_p or not telefone_p or not cidade_p or not bairro_p):
+                st.error("Para cliente não cadastrado, preencha nome, telefone, cidade e bairro.")
+            elif cliente_nao_cadastrado and not cpf_valido_ou_vazio(cpf_p):
+                st.error("CPF inválido. Use 11 números ou deixe vazio.")
+            elif cliente_nao_cadastrado and not telefone_valido(telefone_p):
+                st.error("Telefone inválido. Informe DDD + número.")
+            elif not cliente_nao_cadastrado and lead is None:
+                st.error("Selecione um cliente cadastrado.")
+            else:
                 try:
-                    atendente_destino = None
-                    if visibilidade == "Atendente específico" and captador_nome:
-                        atendente_destino = next((c for c in atendentees_escopo if c.get("nome") == captador_nome), None)
+                    atendente_destino = next((u for u in atendentes_escopo if u.get("nome") == captador_nome), None) if visibilidade == "Atendente específico" else None
                     dados = {
-                        "lead_id": str(lead.get("id")),
-                        "cliente_nome": lead.get("nome_cliente"),
-                        "cpf": lead.get("cpf"),
-                        "telefone": lead.get("telefone"),
-                        "unidade": lead.get("unidade") or "Boa Vista",
-                        "cidade": lead.get("cidade") or lead.get("unidade") or "Boa Vista",
-                        "bairro": lead.get("bairro"),
+                        "lead_id": None if cliente_nao_cadastrado else str(lead.get("id")),
+                        "cliente_nao_cadastrado": cliente_nao_cadastrado,
+                        "cliente_nome": nome_cliente_p,
+                        "cpf": cpf_p,
+                        "telefone": formatar_telefone(telefone_p),
+                        "unidade": unidade_pend or "Boa Vista",
+                        "cidade": cidade_p,
+                        "bairro": bairro_p,
                         "tipo_pendencia": tipo_pend,
                         "descricao": descricao.strip(),
                         "prioridade": prioridade,
                         "prazo": prazo.isoformat(),
                         "status": "Aberta",
+                        "origem": origem,
                         "visibilidade": "Todos" if visibilidade == "Todos os atendentes da unidade" else "Atendente",
                         "captador_destino_id": str(atendente_destino.get("id")) if atendente_destino else None,
                         "captador_destino_nome": atendente_destino.get("nome") if atendente_destino else None,
@@ -4308,7 +4419,9 @@ elif pagina == "Pendências":
                         "criado_por_nome": usuario.get("nome"),
                     }
                     salvar_pendencia(dados)
-                    salvar_historico(str(lead.get("id")), usuario.get("nome", ""), "Pendência aberta", descricao.strip(), "Pendência documental")
+                    carregar_pendencias.clear()
+                    if not cliente_nao_cadastrado and lead is not None:
+                        salvar_historico(str(lead.get("id")), usuario.get("nome", ""), "Pendência aberta", descricao.strip(), "Pendência documental")
                     st.success("Pendência aberta com sucesso!")
                     st.rerun()
                 except Exception as e:
@@ -4316,178 +4429,109 @@ elif pagina == "Pendências":
 
     with tab_lista:
         st.subheader("Acompanhar pendências")
-        dfp = carregar_pendencias()
-        dfp = filtrar_pendencias_por_escopo(dfp, usuario)
-        dfp = resumo_documentos_pendencias(dfp)
+        dfp = resumo_documentos_pendencias(filtrar_pendencias_por_escopo(carregar_pendencias(), usuario))
         if dfp.empty:
             st.info("Nenhuma pendência encontrada.")
         else:
-            # Garante colunas usadas nos filtros
-            for col in ["cliente_nome", "cpf", "telefone", "bairro", "unidade", "tipo_pendencia", "prioridade", "status", "visibilidade", "captador_destino_nome", "descricao"]:
+            defaults = {
+                "cliente_nome": "", "cpf": "", "telefone": "", "bairro": "", "unidade": "",
+                "tipo_pendencia": "", "prioridade": "Normal", "status": "Aberta", "visibilidade": "",
+                "captador_destino_nome": "", "descricao": "", "origem": "Manual", "cliente_nao_cadastrado": False,
+            }
+            for col, padrao in defaults.items():
                 if col not in dfp.columns:
-                    dfp[col] = ""
-                dfp[col] = dfp[col].fillna("").astype(str)
-
-            st.markdown("#### 🔎 Buscar e filtrar pendências")
+                    dfp[col] = padrao
 
             col1, col2, col3 = st.columns([1.6, 1, 1])
             with col1:
-                busca_p = st.text_input(
-                    "Buscar por cliente, CPF, telefone, atendente ou descrição",
-                    placeholder="Digite nome, CPF, telefone, atendente, tipo ou parte da descrição...",
-                    key="acompanhar_pend_busca",
-                )
+                busca_p = st.text_input("Buscar por cliente, CPF, telefone, atendente ou descrição", key="acompanhar_pend_busca")
             with col2:
-                status_p = st.multiselect(
-                    "Status da pendência",
-                    STATUS_PENDENCIA,
-                    default=STATUS_PENDENCIA,
-                    key="acompanhar_pend_status",
-                )
+                status_p = st.multiselect("Status", STATUS_PENDENCIA, default=STATUS_PENDENCIA, key="acompanhar_pend_status")
             with col3:
-                docs_p = st.selectbox(
-                    "Situação dos documentos",
-                    ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"],
-                    key="acompanhar_pend_docs",
-                )
+                vinculo_p = st.selectbox("Vínculo", ["Todos", "Cliente cadastrado", "Cliente não cadastrado"], key="acompanhar_pend_vinculo")
 
             col4, col5, col6, col7 = st.columns(4)
             with col4:
-                unidade_p = st.multiselect(
-                    "Unidade",
-                    sorted([x for x in dfp["unidade"].fillna("Boa Vista").replace("", "Boa Vista").unique().tolist() if x]),
-                    key="acompanhar_pend_unidade",
-                )
+                unidade_f = st.multiselect("Unidade", sorted([x for x in dfp["unidade"].fillna("").unique().tolist() if x]))
             with col5:
-                tipo_p = st.multiselect(
-                    "Tipo de pendência",
-                    sorted([x for x in dfp["tipo_pendencia"].dropna().unique().tolist() if x]),
-                    key="acompanhar_pend_tipo",
-                )
+                tipo_f = st.multiselect("Tipo", sorted([x for x in dfp["tipo_pendencia"].fillna("").unique().tolist() if x]))
             with col6:
-                atendente_p = st.multiselect(
-                    "Atendente",
-                    sorted([x for x in dfp["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").unique().tolist() if x]),
-                    key="acompanhar_pend_atendente",
-                )
+                prioridade_f = st.multiselect("Prioridade", PRIORIDADE_PENDENCIA, default=PRIORIDADE_PENDENCIA)
             with col7:
-                bairro_p = st.multiselect(
-                    "Bairro",
-                    sorted([x for x in dfp["bairro"].fillna("").replace("", "Não informado").unique().tolist() if x]),
-                    key="acompanhar_pend_bairro",
-                )
+                origem_f = st.multiselect("Origem", sorted([x for x in dfp["origem"].fillna("Manual").unique().tolist() if x]))
 
-            col8, col9, col10 = st.columns(3)
-            with col8:
-                prioridade_p = st.multiselect(
-                    "Prioridade",
-                    PRIORIDADE_PENDENCIA,
-                    default=PRIORIDADE_PENDENCIA,
-                    key="acompanhar_pend_prioridade",
-                )
-            with col9:
-                visibilidade_p = st.selectbox(
-                    "Visibilidade",
-                    ["Todas", "Todos os atendentes", "Atendente específico"],
-                    key="acompanhar_pend_visibilidade",
-                )
-            with col10:
-                prazo_p = st.selectbox(
-                    "Prazo",
-                    ["Todos", "Vencidas", "Vencem hoje", "Próximas"],
-                    key="acompanhar_pend_prazo",
-                )
+            p1, p2 = st.columns(2)
+            with p1:
+                prazo_f = st.selectbox("Prazo", ["Todos", "Vencidas", "Vencem hoje", "Próximas"])
+            with p2:
+                docs_f = st.selectbox("Documentos", ["Todos", "Não baixados", "Parcialmente baixados", "Documentos baixados", "Sem documentos"])
 
-            dfp_f = dfp.copy()
-
+            dfp_f = aplicar_filtro_documentos_df(dfp.copy(), docs_f)
             if status_p:
                 dfp_f = dfp_f[dfp_f["status"].fillna("Aberta").isin(status_p)]
+            if unidade_f:
+                dfp_f = dfp_f[dfp_f["unidade"].isin(unidade_f)]
+            if tipo_f:
+                dfp_f = dfp_f[dfp_f["tipo_pendencia"].isin(tipo_f)]
+            if prioridade_f:
+                dfp_f = dfp_f[dfp_f["prioridade"].fillna("Normal").isin(prioridade_f)]
+            if origem_f:
+                dfp_f = dfp_f[dfp_f["origem"].fillna("Manual").isin(origem_f)]
+            if vinculo_p == "Cliente cadastrado":
+                dfp_f = dfp_f[~dfp_f["cliente_nao_cadastrado"].fillna(False).astype(bool)]
+            elif vinculo_p == "Cliente não cadastrado":
+                dfp_f = dfp_f[dfp_f["cliente_nao_cadastrado"].fillna(False).astype(bool)]
 
-            dfp_f = aplicar_filtro_documentos_df(dfp_f, docs_p)
-
-            if unidade_p:
-                dfp_f = dfp_f[dfp_f["unidade"].fillna("Boa Vista").replace("", "Boa Vista").isin(unidade_p)]
-
-            if tipo_p:
-                dfp_f = dfp_f[dfp_f["tipo_pendencia"].isin(tipo_p)]
-
-            if atendente_p:
-                dfp_f = dfp_f[dfp_f["captador_destino_nome"].fillna("").replace("", "Todos/Não definido").isin(atendente_p)]
-
-            if bairro_p:
-                dfp_f = dfp_f[dfp_f["bairro"].fillna("").replace("", "Não informado").isin(bairro_p)]
-
-            if prioridade_p:
-                dfp_f = dfp_f[dfp_f["prioridade"].fillna("Normal").replace("", "Normal").isin(prioridade_p)]
-
-            if visibilidade_p == "Todos os atendentes":
-                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["todos", "todos_unidade", "todos os atendentes da unidade"])]
-            elif visibilidade_p == "Atendente específico":
-                dfp_f = dfp_f[dfp_f["visibilidade"].fillna("").str.lower().isin(["atendente", "atendente específico", "atendente especifico"])]
-
-            if prazo_p != "Todos" and "prazo" in dfp_f.columns:
-                prazo_dt = pd.to_datetime(dfp_f["prazo"], errors="coerce").dt.date
-                hoje_p = date.today()
-                if prazo_p == "Vencidas":
-                    dfp_f = dfp_f[prazo_dt < hoje_p]
-                elif prazo_p == "Vencem hoje":
-                    dfp_f = dfp_f[prazo_dt == hoje_p]
-                elif prazo_p == "Próximas":
-                    dfp_f = dfp_f[prazo_dt > hoje_p]
+            if prazo_f != "Todos":
+                prazo_dt = pd.to_datetime(dfp_f.get("prazo"), errors="coerce").dt.date
+                if prazo_f == "Vencidas":
+                    dfp_f = dfp_f[prazo_dt < hoje_pend]
+                elif prazo_f == "Vencem hoje":
+                    dfp_f = dfp_f[prazo_dt == hoje_pend]
+                elif prazo_f == "Próximas":
+                    dfp_f = dfp_f[prazo_dt > hoje_pend]
 
             if busca_p.strip():
                 termo = busca_p.strip().lower()
                 termo_dig = apenas_digitos(busca_p)
                 mask = pd.Series(False, index=dfp_f.index)
-
-                for c in ["cliente_nome", "cpf", "telefone", "bairro", "captador_destino_nome", "tipo_pendencia", "descricao", "prioridade", "status"]:
-                    if c in dfp_f.columns:
-                        mask = mask | dfp_f[c].fillna("").astype(str).str.lower().str.contains(termo, na=False)
-
+                for col in ["cliente_nome", "cpf", "telefone", "bairro", "captador_destino_nome", "tipo_pendencia", "descricao"]:
+                    mask = mask | dfp_f[col].fillna("").astype(str).str.lower().str.contains(termo, na=False)
                 if termo_dig:
-                    if "cpf" in dfp_f.columns:
-                        mask = mask | dfp_f["cpf"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_dig, na=False)
-                    if "telefone" in dfp_f.columns:
-                        mask = mask | dfp_f["telefone"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_dig, na=False)
-
+                    mask = mask | dfp_f["cpf"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_dig, na=False)
+                    mask = mask | dfp_f["telefone"].fillna("").astype(str).apply(apenas_digitos).str.contains(termo_dig, na=False)
                 dfp_f = dfp_f[mask]
 
-            st.caption(f"{len(dfp_f)} pendência(s) encontrada(s) com os filtros selecionados.")
-
+            st.caption(f"{len(dfp_f)} pendência(s) encontrada(s).")
             if dfp_f.empty:
-                st.warning("Nenhuma pendência encontrada com os filtros selecionados.")
+                st.warning("Nenhuma pendência encontrada com os filtros.")
             else:
-                cols = ["criado_em", "cliente_nome", "cpf", "telefone", "bairro", "unidade", "tipo_pendencia", "prioridade", "prazo", "status", "visibilidade", "captador_destino_nome", "documentos_enviados", "documentos_baixados", "situacao_documentos"]
+                dfp_f = dfp_f.copy()
+                dfp_f["Vínculo"] = dfp_f["cliente_nao_cadastrado"].fillna(False).apply(lambda x: "🟡 Não cadastrado" if bool(x) else "🟢 Cadastrado")
+                cols = ["Vínculo", "criado_em", "cliente_nome", "cpf", "telefone", "bairro", "unidade", "tipo_pendencia", "prioridade", "prazo", "status", "origem", "captador_destino_nome", "situacao_documentos"]
                 cols = [c for c in cols if c in dfp_f.columns]
-                st.dataframe(dfp_f[cols].rename(columns={
-                    "criado_em":"Criada em", "cliente_nome":"Cliente", "cpf":"CPF", "telefone":"Telefone", "bairro":"Bairro", "unidade":"Unidade",
-                    "tipo_pendencia":"Tipo", "prioridade":"Prioridade", "prazo":"Prazo", "status":"Status",
-                    "visibilidade":"Visibilidade", "captador_destino_nome":"Atendente",
-                    "documentos_enviados":"Docs enviados", "documentos_baixados":"Docs baixados", "situacao_documentos":"Situação docs"
-                }), use_container_width=True, hide_index=True)
+                st.dataframe(dfp_f[cols], use_container_width=True, hide_index=True)
 
                 dfp_f["label"] = (
-                    dfp_f["cliente_nome"].fillna("") + " | " +
-                    dfp_f["tipo_pendencia"].fillna("") + " | " +
-                    dfp_f["status"].fillna("Aberta") + " | 📎 " +
-                    dfp_f["documentos_enviados"].astype(str) + " / 📥 " +
-                    dfp_f["documentos_baixados"].astype(str)
+                    dfp_f["Vínculo"] + " | " + dfp_f["cliente_nome"].fillna("") + " | "
+                    + dfp_f["tipo_pendencia"].fillna("") + " | " + dfp_f["status"].fillna("Aberta")
                 )
-                pend_label = st.selectbox("Selecionar pendência para atualizar/baixar documentos", dfp_f["label"].tolist())
+                pend_label = st.selectbox("Selecionar pendência", dfp_f["label"].tolist())
                 pend = dfp_f[dfp_f["label"] == pend_label].iloc[0]
-                st.write(f"**Descrição:** {pend.get('descricao','')}")
-                st.write(f"📎 **Enviados:** {int(pend.get('documentos_enviados',0))} | 📥 **Baixados:** {int(pend.get('documentos_baixados',0))}")
+                st.write(f"**Descrição:** {pend.get('descricao', '')}")
+                st.write(f"**Origem:** {pend.get('origem', 'Manual')} | **Responsável:** {pend.get('captador_destino_nome') or 'Todos da unidade'}")
 
                 with st.form("form_update_pendencia_gestor"):
                     novo_status = st.selectbox("Status da pendência", STATUS_PENDENCIA, index=STATUS_PENDENCIA.index(pend.get("status", "Aberta")) if pend.get("status", "Aberta") in STATUS_PENDENCIA else 0)
-                    obs_status = st.text_area("Observação da atualização", placeholder="Ex.: Documentos recebidos e conferidos.")
-                    salvar_status = st.form_submit_button("Salvar status")
+                    obs_status = st.text_area("Observação da atualização")
+                    salvar_status = st.form_submit_button("💾 Salvar status")
                 if salvar_status:
-                    dados_up = {"status": novo_status, "atualizado_em": datetime.now(timezone.utc).isoformat()}
+                    dados_up = {"status": novo_status, "atualizado_em": agora_utc_iso()}
                     if novo_status == "Resolvida":
-                        dados_up["resolvido_em"] = datetime.now(timezone.utc).isoformat()
+                        dados_up["resolvido_em"] = agora_utc_iso()
                         dados_up["resolvido_por"] = usuario.get("nome")
                     atualizar_pendencia(str(pend["id"]), dados_up)
+                    carregar_pendencias.clear()
                     if pend.get("lead_id"):
                         salvar_historico(str(pend.get("lead_id")), usuario.get("nome", ""), novo_status, obs_status.strip() or f"Pendência alterada para {novo_status}.", "Pendência documental")
                     st.success("Pendência atualizada.")
@@ -4495,6 +4539,8 @@ elif pagina == "Pendências":
 
                 if pend.get("lead_id"):
                     exibir_arquivos_do_lead(str(pend.get("lead_id")), usuario, pend.get("cliente_nome", "cliente"))
+                else:
+                    st.info("Cliente não cadastrado: os documentos poderão ser vinculados quando o cliente for cadastrado futuramente.")
 
 
 # -------------------------------
