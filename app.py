@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-73-agenda-unica-cores"
+VERSAO_APP = "app-74-agenda-dia-semana-correcao"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -1798,7 +1798,7 @@ def buscar_agendamentos_ativos_por_lead(lead_id: str) -> list[dict]:
             supabase.table(TABELA_AGENDAMENTOS)
             .select("*")
             .eq("lead_id", str(lead_id))
-            .neq("status_agendamento", "Cancelado")
+            .in_("status_agendamento", ["Agendado", "Confirmado"])
             .order("data_agendamento", desc=True)
             .order("hora_inicio", desc=True)
             .execute()
@@ -1914,6 +1914,78 @@ def cancelar_agendamentos_duplicados(
             }).eq("id", item_id).execute()
     finally:
         carregar_agendamentos.clear()
+
+
+def reparar_agendamento_invertido_por_lead(lead_id: str) -> int:
+    """Corrige o caso legado em que o horário novo ficou como Remarcado e o antigo como Agendado."""
+    if not lead_id:
+        return 0
+    try:
+        resp = (
+            supabase.table(TABELA_AGENDAMENTOS)
+            .select("*")
+            .eq("lead_id", str(lead_id))
+            .execute()
+        )
+        rows = resp.data or []
+        ativos = [r for r in rows if str(r.get("status_agendamento") or "").strip() in {"", "Agendado", "Confirmado"}]
+        remarcados_auto = [
+            r for r in rows
+            if str(r.get("status_agendamento") or "").strip() == "Remarcado"
+            and "Remarcado automaticamente" in str(r.get("observacao") or "")
+        ]
+        if not ativos or not remarcados_auto:
+            return 0
+
+        def data_hora(r):
+            data = pd.to_datetime(r.get("data_agendamento"), errors="coerce")
+            hora = str(r.get("hora_inicio") or "00:00")[:5]
+            if pd.isna(data):
+                return pd.Timestamp.min
+            try:
+                return pd.Timestamp(f"{data.date().isoformat()} {hora}")
+            except Exception:
+                return pd.Timestamp.min
+
+        ativo_atual = max(ativos, key=data_hora)
+        candidato = max(remarcados_auto, key=data_hora)
+        if data_hora(candidato) <= data_hora(ativo_atual):
+            return 0
+
+        candidato_id = str(candidato.get("id") or "")
+        if not candidato_id:
+            return 0
+
+        obs_candidato = str(candidato.get("observacao") or "")
+        partes = [p.strip() for p in obs_candidato.split(".") if p.strip()]
+        partes = [p for p in partes if not p.startswith("Remarcado automaticamente")]
+        supabase.table(TABELA_AGENDAMENTOS).update({
+            "status_agendamento": "Agendado",
+            "observacao": ". ".join(partes).strip(),
+            "atualizado_em": agora_utc_iso(),
+        }).eq("id", candidato_id).execute()
+
+        destino = f"{pd.to_datetime(candidato.get('data_agendamento')).strftime('%d/%m/%Y')} às {str(candidato.get('hora_inicio') or '')[:5]}"
+        corrigidos = 0
+        for antigo in ativos:
+            antigo_id = str(antigo.get("id") or "")
+            if not antigo_id or antigo_id == candidato_id:
+                continue
+            observacao = str(antigo.get("observacao") or "").strip()
+            complemento = f"Remarcado automaticamente para {destino}."
+            if complemento not in observacao:
+                observacao = f"{observacao} {complemento}".strip()
+            supabase.table(TABELA_AGENDAMENTOS).update({
+                "status_agendamento": "Remarcado",
+                "observacao": observacao,
+                "atualizado_em": agora_utc_iso(),
+            }).eq("id", antigo_id).execute()
+            corrigidos += 1
+
+        carregar_agendamentos.clear()
+        return corrigidos + 1
+    except Exception:
+        return 0
 
 
 def consolidar_agendamentos_ativos() -> int:
@@ -2139,6 +2211,63 @@ def montar_calendario_mensal(df_agenda: pd.DataFrame, ano: int, mes: int) -> str
             html_cal += "</div>"
 
     return html_cal + "</div>"
+
+
+def _cartao_evento_agenda(row, compacto: bool = False) -> str:
+    cores_status = {
+        "Agendado": ("#EAF7FF", "#18BDF2"),
+        "Confirmado": ("#ECFDF3", "#22C55E"),
+        "Remarcado": ("#FFF8E1", "#F59E0B"),
+        "Atendido": ("#F3E8FF", "#8B5CF6"),
+        "Não compareceu": ("#FFF1F2", "#EF4444"),
+        "Cancelado": ("#F1F5F9", "#94A3B8"),
+    }
+    hora = str(row.get("hora_inicio") or "")[:5]
+    fim = str(row.get("hora_fim") or "")[:5]
+    cliente = html.escape(str(row.get("cliente_nome") or "Cliente"))
+    advogado = html.escape(str(row.get("advogado_nome") or ""))
+    status = str(row.get("status_agendamento") or "Agendado")
+    fundo, borda = cores_status.get(status, ("#EAF7FF", "#18BDF2"))
+    classe = " text-decoration:line-through;opacity:.68;" if status == "Cancelado" else ""
+    horario = f"{hora}–{fim}" if fim else hora
+    detalhes = "" if compacto else f"<br>{advogado}<br><small>{html.escape(status)}</small>"
+    return (
+        f'<div style="background:{fundo};border-left:5px solid {borda};border-radius:9px;'
+        f'padding:7px 8px;margin:5px 0;line-height:1.35;{classe}">'
+        f'<b>{horario}</b> — {cliente}{detalhes}</div>'
+    )
+
+
+def montar_calendario_semanal(df_agenda: pd.DataFrame, data_referencia: date) -> str:
+    inicio = data_referencia - timedelta(days=data_referencia.weekday())
+    dias = [inicio + timedelta(days=i) for i in range(7)]
+    html_semana = '<style>.semana-grid{display:grid;grid-template-columns:repeat(7,minmax(150px,1fr));gap:7px;overflow-x:auto}.semana-col{min-height:260px;border:1px solid #DCE8F4;border-radius:12px;padding:8px;background:#FFF}.semana-head{font-weight:900;text-align:center;padding:8px;background:#EAF4FC;border-radius:8px;margin-bottom:6px}</style><div class="semana-grid">'
+    datas = pd.to_datetime(df_agenda.get("data_agendamento"), errors="coerce").dt.date if not df_agenda.empty else pd.Series(dtype=object)
+    nomes = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+    for i, dia in enumerate(dias):
+        html_semana += f'<div class="semana-col"><div class="semana-head">{nomes[i]}<br>{dia.strftime("%d/%m")}</div>'
+        eventos = df_agenda[datas == dia] if not df_agenda.empty else pd.DataFrame()
+        if eventos.empty:
+            html_semana += '<div style="color:#94A3B8;text-align:center;padding-top:20px">Sem atendimentos</div>'
+        else:
+            eventos = eventos.sort_values("hora_inicio")
+            for _, row in eventos.iterrows():
+                html_semana += _cartao_evento_agenda(row, compacto=False)
+        html_semana += '</div>'
+    return html_semana + '</div>'
+
+
+def montar_calendario_diario(df_agenda: pd.DataFrame, dia: date) -> str:
+    if df_agenda.empty:
+        return '<div style="padding:22px;border:1px solid #DCE8F4;border-radius:12px;text-align:center;color:#64748B">Nenhum atendimento neste dia.</div>'
+    datas = pd.to_datetime(df_agenda["data_agendamento"], errors="coerce").dt.date
+    eventos = df_agenda[datas == dia].copy().sort_values("hora_inicio")
+    if eventos.empty:
+        return '<div style="padding:22px;border:1px solid #DCE8F4;border-radius:12px;text-align:center;color:#64748B">Nenhum atendimento neste dia.</div>'
+    html_dia = f'<div style="font-weight:900;font-size:20px;margin-bottom:10px">{dia.strftime("%d/%m/%Y")}</div>'
+    for _, row in eventos.iterrows():
+        html_dia += _cartao_evento_agenda(row, compacto=False)
+    return html_dia
 
 
 @st.cache_data(ttl=30)
@@ -3867,10 +3996,7 @@ elif pagina == "Agenda de Atendimentos":
     st.title("📅 Agenda de Atendimentos")
     st.caption("Agenda ativa no fuso de Manaus. Cancelados e horários antigos remarcados ficam ocultos por padrão.")
 
-    corrigidos_agenda = consolidar_agendamentos_ativos()
     df_agenda = carregar_agendamentos()
-    if corrigidos_agenda:
-        st.success(f"{corrigidos_agenda} agendamento(s) antigo(s) foram removidos da agenda ativa e marcados como remarcados.")
     if df_agenda.empty:
         st.info("Nenhum atendimento agendado.")
         st.stop()
@@ -3941,9 +4067,11 @@ elif pagina == "Agenda de Atendimentos":
 
     st.caption(f"{len(df_f)} atendimento(s) encontrado(s). Horário local: {agora_manaus().strftime('%d/%m/%Y %H:%M')}.")
 
-    tab_cal, tab_lista = st.tabs(["🗓️ Calendário mensal", "📋 Lista de atendimentos"])
+    tab_mes, tab_semana, tab_dia, tab_lista = st.tabs([
+        "🗓️ Mês", "📆 Semana", "📅 Dia", "📋 Lista de atendimentos"
+    ])
 
-    with tab_cal:
+    with tab_mes:
         c1, c2 = st.columns(2)
         with c1:
             mes_ag = st.selectbox(
@@ -3954,9 +4082,10 @@ elif pagina == "Agenda de Atendimentos":
                     "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
                     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
                 ][m - 1],
+                key="agenda_mes_visual",
             )
         with c2:
-            ano_ag = st.number_input("Ano", min_value=2020, max_value=2100, value=hoje_agenda.year, step=1)
+            ano_ag = st.number_input("Ano", min_value=2020, max_value=2100, value=hoje_agenda.year, step=1, key="agenda_ano_visual")
 
         df_mes = df_f[
             (pd.to_datetime(df_f["data_agendamento"], errors="coerce").dt.month == mes_ag)
@@ -3964,6 +4093,17 @@ elif pagina == "Agenda de Atendimentos":
         ]
         st.markdown(montar_calendario_mensal(df_mes, int(ano_ag), int(mes_ag)), unsafe_allow_html=True)
         st.caption("Azul: agendado • Verde: confirmado • Amarelo: remarcado • Roxo: atendido • Vermelho: não compareceu • Cinza: cancelado")
+
+    with tab_semana:
+        data_semana = st.date_input("Selecione uma data da semana", value=hoje_agenda, key="agenda_data_semana")
+        inicio_semana = data_semana - timedelta(days=data_semana.weekday())
+        fim_semana = inicio_semana + timedelta(days=6)
+        st.caption(f"Semana de {inicio_semana.strftime('%d/%m/%Y')} a {fim_semana.strftime('%d/%m/%Y')}")
+        st.markdown(montar_calendario_semanal(df_f, data_semana), unsafe_allow_html=True)
+
+    with tab_dia:
+        data_dia = st.date_input("Selecione o dia", value=hoje_agenda, key="agenda_data_dia")
+        st.markdown(montar_calendario_diario(df_f, data_dia), unsafe_allow_html=True)
 
     with tab_lista:
         if df_f.empty:
@@ -4804,6 +4944,7 @@ elif pagina == "Atualizar Cliente":
     lead_label = st.selectbox("Selecione o cliente", df_busca["label"].tolist())
     lead = df_busca[df_busca["label"] == lead_label].iloc[0]
     lead_id = str(lead["id"])
+    reparar_agendamento_invertido_por_lead(lead_id)
     agendamento_ativo = buscar_agendamento_ativo_por_lead(lead_id)
 
     st.markdown("### Ficha do Cliente")
