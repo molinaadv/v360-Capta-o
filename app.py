@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-74-agenda-dia-semana-correcao"
+VERSAO_APP = "app-76-cidades-observacao-mobile"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -2732,7 +2732,7 @@ if perfil in ["captador", "atendente"]:
 
     if st.session_state.atendente_pagina == "Novo Cliente":
         abrir_card_mobile("Novo Cliente", "Preencha os dados do cliente")
-        with st.form("form_novo_lead_mobile", clear_on_submit=True):
+        with st.form("form_novo_lead_mobile", clear_on_submit=False):
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
             cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_mobile")
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
@@ -2747,7 +2747,11 @@ if perfil in ["captador", "atendente"]:
                 local_captacao = st.text_input("Local da clientes *", placeholder="Ex.: Feira, praça, INSS, ação social...")
             area_acao = st.selectbox("Área da ação *", AREAS_ACAO)
             tipo_beneficio = st.selectbox("Tipo de benefício *", listar_beneficios())
-            observacao = st.text_area("Observação", placeholder="Informações úteis para o atendimento posterior")
+            observacao = st.text_area(
+                "Observação",
+                placeholder="Informações úteis para o atendimento posterior",
+                key="observacao_novo_cliente_mobile",
+            )
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_mobile")
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
             foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
@@ -2756,6 +2760,12 @@ if perfil in ["captador", "atendente"]:
         fechar_card_mobile()
 
         if enviar:
+            # Congela a observação enviada pelo navegador antes de qualquer
+            # processamento posterior. Isso evita perda do texto no fluxo móvel.
+            observacao_final = str(
+                st.session_state.get("observacao_novo_cliente_mobile", observacao) or ""
+            ).strip()
+
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
             if not nome_cliente or not telefone or not bairro or not cidade_lead or not local_captacao:
@@ -2783,15 +2793,15 @@ if perfil in ["captador", "atendente"]:
                     "local_captacao": normalizar_texto(local_captacao),
                     "area_acao": area_acao,
                     "tipo_beneficio": tipo_beneficio,
-                    "observacao": observacao.strip(),
+                    "observacao": observacao_final,
                     "status_lead": "Novo",
                 }
                 try:
                     resp = salvar_lead(dados)
                     novo_id = (resp.data or [{}])[0].get("id") if hasattr(resp, "data") else None
                     if novo_id:
-                        observacao_ok = garantir_observacao_lead(novo_id, observacao)
-                        salvar_historico(novo_id, usuario["nome"], "Novo", observacao.strip(), "Cliente cadastrado")
+                        observacao_ok = garantir_observacao_lead(novo_id, observacao_final)
+                        salvar_historico(novo_id, usuario["nome"], "Novo", observacao_final, "Cliente cadastrado")
                         arquivos_para_enviar = lista_arquivos_com_foto(
                             arquivos_upload,
                             foto_camera_upload,
@@ -2803,7 +2813,7 @@ if perfil in ["captador", "atendente"]:
                                 enviar_arquivo_temporario(novo_id, arquivo, tipo_documento_upload, usuario)
                                 enviados += 1
                             salvar_historico(novo_id, usuario["nome"], "Novo", f"{enviados} arquivo(s) anexado(s) ao lead.", "Arquivos anexados")
-                    if novo_id and observacao.strip() and not observacao_ok:
+                    if novo_id and observacao_final and not observacao_ok:
                         st.warning(
                             "O cliente foi salvo, mas não foi possível confirmar a observação. "
                             "Abra o cliente em Atualizar Cliente para conferir."
@@ -5452,7 +5462,9 @@ elif pagina == "Usuários":
 
     with tab_criar:
         st.subheader("Criar novo usuário")
-        with st.form("form_usuario_criar"):
+        # Unidade e cidade são campos dependentes; fora de st.form a lista
+        # de cidades é recalculada imediatamente quando a unidade muda.
+        with st.container():
             col1, col2 = st.columns(2)
             with col1:
                 nome = st.text_input("Nome", key="criar_nome")
@@ -5526,7 +5538,7 @@ elif pagina == "Usuários":
                             key="criar_cidades",
                             help="Selecione uma ou mais cidades dentro das unidades liberadas."
                         )
-            criar = st.form_submit_button("Criar Usuário")
+            criar = st.button("Criar Usuário", key="btn_criar_usuario")
 
         if criar:
             if not nome or not email or not senha:
