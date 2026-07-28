@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-76-cidades-observacao-mobile"
+VERSAO_APP = "app-76-mobile-sem-form-observacao"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -2732,7 +2732,7 @@ if perfil in ["captador", "atendente"]:
 
     if st.session_state.atendente_pagina == "Novo Cliente":
         abrir_card_mobile("Novo Cliente", "Preencha os dados do cliente")
-        with st.form("form_novo_lead_mobile", clear_on_submit=False):
+        with st.container():
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
             cidade_lead = selecionar_cidade_por_unidade(unidade_lead, key="cidade_lead_mobile")
             nome_cliente = st.text_input("Nome do cliente *", placeholder="Digite o nome completo")
@@ -2755,16 +2755,21 @@ if perfil in ["captador", "atendente"]:
             tipo_documento_upload = st.selectbox("Tipo dos arquivos", listar_tipos_arquivo(), key="tipo_doc_upload_mobile")
             arquivos_upload = st.file_uploader("📎 Anexar documentos/arquivos", accept_multiple_files=True, type=["pdf", "png", "jpg", "jpeg", "webp"], key="arquivos_upload_mobile")
             foto_camera_upload = st.file_uploader("📷 Tirar foto do documento", accept_multiple_files=False, type=["png", "jpg", "jpeg", "webp"], key="foto_camera_upload_mobile", help="Use este campo para abrir a câmera do celular ou escolher uma foto da galeria.")
-            enviar = st.form_submit_button("💾 SALVAR CLIENTE")
+            enviar = st.button("💾 SALVAR CLIENTE", key="btn_salvar_cliente_mobile", type="primary")
             st.markdown("<div class='mobile-note'>🔒 Atendente identificado automaticamente</div>", unsafe_allow_html=True)
         fechar_card_mobile()
 
         if enviar:
             # Congela a observação enviada pelo navegador antes de qualquer
             # processamento posterior. Isso evita perda do texto no fluxo móvel.
-            observacao_final = str(
-                st.session_state.get("observacao_novo_cliente_mobile", observacao) or ""
-            ).strip()
+            observacao_final = str(observacao or "").strip()
+
+            # Segurança adicional: se por algum motivo o retorno vier vazio,
+            # tenta recuperar diretamente o valor persistido no session_state.
+            if not observacao_final:
+                observacao_final = str(
+                    st.session_state.get("observacao_novo_cliente_mobile", "") or ""
+                ).strip()
 
             cpf_limpo = limpar_cpf(cpf)
             duplicado = buscar_lead_por_cpf(cpf_limpo) if cpf_limpo else None
