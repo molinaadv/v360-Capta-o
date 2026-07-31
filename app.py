@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-76-mobile-sem-form-observacao"
+VERSAO_APP = "app-76-status-erro-tela-sucesso"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -270,7 +270,8 @@ TIPOS_BENEFICIO = [
     "Pensão por morte", "Auxílio-reclusão", "Revisão de benefício", "Outro"
 ]
 
-STATUS_LEAD = ["Novo", "Em atendimento", "Agendado", "Convertido", "Perdido"]
+STATUS_LEAD = ["Novo", "Em atendimento", "Agendado", "Convertido", "Perdido", "Erro de cadastro"]
+STATUS_LEAD_CONTABILIZAVEL = ["Novo", "Em atendimento", "Agendado", "Convertido", "Perdido"]
 MOTIVOS_PERDA = [
     "", "Não possui direito", "Cliente desistiu", "Já possui advogado",
     "Não apresentou documentos", "Sem contato", "Benefício negado anteriormente",
@@ -2731,6 +2732,29 @@ if perfil in ["captador", "atendente"]:
         st.rerun()
 
     if st.session_state.atendente_pagina == "Novo Cliente":
+        if st.session_state.get("cliente_cadastrado_sucesso_mobile"):
+            nome_sucesso = st.session_state.get("cliente_cadastrado_nome_mobile", "Cliente")
+            st.markdown(
+                f"""
+                <div style="min-height:58vh;display:flex;align-items:center;justify-content:center;padding:18px 14px;">
+                    <div style="width:100%;max-width:430px;background:#fff;border:1px solid #DCE8F4;border-radius:24px;padding:30px 22px 24px;text-align:center;box-shadow:0 16px 36px rgba(6,26,51,.12);">
+                        <div style="width:74px;height:74px;border-radius:50%;margin:0 auto 16px;display:flex;align-items:center;justify-content:center;background:#ECFDF3;color:#16A34A;font-size:38px;font-weight:950;border:2px solid #BBF7D0;">✓</div>
+                        <div style="color:#061A33;font-size:28px;font-weight:950;margin-bottom:8px;">Cliente cadastrado!</div>
+                        <div style="color:#0A3D7A;font-size:17px;font-weight:800;margin-bottom:6px;">{html.escape(str(nome_sucesso))}</div>
+                        <div style="color:#65748A;font-size:14px;">O cadastro foi salvo com sucesso no V360.</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("➕ CADASTRAR NOVO CLIENTE", key="btn_cadastrar_novo_cliente_mobile", type="primary", use_container_width=True):
+                st.session_state.pop("cliente_cadastrado_sucesso_mobile", None)
+                st.session_state.pop("cliente_cadastrado_nome_mobile", None)
+                for chave in ["observacao_novo_cliente_mobile", "arquivos_upload_mobile", "foto_camera_upload_mobile"]:
+                    st.session_state.pop(chave, None)
+                st.rerun()
+            st.stop()
+
         abrir_card_mobile("Novo Cliente", "Preencha os dados do cliente")
         with st.container():
             unidade_lead = selecionar_unidade_usuario(usuario, key="unidade_lead_mobile")
@@ -2824,7 +2848,9 @@ if perfil in ["captador", "atendente"]:
                             "Abra o cliente em Atualizar Cliente para conferir."
                         )
                     else:
-                        st.success("Cliente salvo com sucesso, incluindo a observação!")
+                        st.session_state["cliente_cadastrado_sucesso_mobile"] = True
+                        st.session_state["cliente_cadastrado_nome_mobile"] = normalizar_texto(nome_cliente)
+                        st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao salvar cliente: {e}")
 
@@ -2843,11 +2869,12 @@ if perfil in ["captador", "atendente"]:
                 hoje = date.today()
                 st.markdown("#### 📈 Meu resumo")
                 mes_ini = hoje.replace(day=1)
-                df_mes = df[df["data_captacao"].dt.date >= mes_ini].copy()
+                df_metricas = df[df["status_lead"].fillna("Novo") != "Erro de cadastro"].copy()
+                df_mes = df_metricas[df_metricas["data_captacao"].dt.date >= mes_ini].copy()
                 total_mes = len(df_mes)
                 conv_mes = int((df_mes["status_lead"] == "Convertido").sum()) if not df_mes.empty else 0
                 atendimento_mes = int((df_mes["status_lead"] == "Em atendimento").sum()) if not df_mes.empty else 0
-                docs_abertos = int((df["documentos_enviados"] > df["documentos_baixados"]).sum())
+                docs_abertos = int((df_metricas["documentos_enviados"] > df_metricas["documentos_baixados"]).sum())
                 c1, c2 = st.columns(2)
                 c1.metric("Clientes no mês", total_mes)
                 c2.metric("Convertidos", conv_mes)
@@ -3242,7 +3269,7 @@ elif pagina == "Minhas Clientes":
 
         col1, col2 = st.columns(2)
         with col1:
-            status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD)
+            status_filtro = st.multiselect("Status", STATUS_LEAD_CONTABILIZAVEL, default=STATUS_LEAD_CONTABILIZAVEL)
         with col2:
             bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()))
 
@@ -3556,8 +3583,10 @@ elif pagina == "Painel Gestor":
     if local_filtro:
         df = df[df["local_captacao"].isin(local_filtro)]
 
+    df = df[df["status_lead"].fillna("Novo") != "Erro de cadastro"].copy()
+
     if df.empty:
-        st.warning("Nenhum cliente encontrado com os filtros selecionados.")
+        st.warning("Nenhum cliente contabilizável encontrado com os filtros selecionados.")
         st.stop()
 
     total = len(df)
@@ -3794,7 +3823,7 @@ elif pagina == "Insights V360":
     with colf3:
         data_fim = st.date_input("Data final", hoje, key="ins_data_fim")
     with colf4:
-        status_filtro = st.multiselect("Status", STATUS_LEAD, default=STATUS_LEAD, key="ins_status")
+        status_filtro = st.multiselect("Status", STATUS_LEAD_CONTABILIZAVEL, default=STATUS_LEAD_CONTABILIZAVEL, key="ins_status")
 
     if periodo == "Últimos 7 dias":
         data_ini, data_fim = hoje - timedelta(days=7), hoje
@@ -3828,8 +3857,10 @@ elif pagina == "Insights V360":
     if local_filtro:
         df = df[df["local_captacao"].isin(local_filtro)]
 
+    df = df[df["status_lead"].fillna("Novo") != "Erro de cadastro"].copy()
+
     if df.empty:
-        st.warning("Nenhum cliente encontrado com os filtros selecionados.")
+        st.warning("Nenhum cliente contabilizável encontrado com os filtros selecionados.")
         st.stop()
 
     total = len(df)
@@ -3924,6 +3955,7 @@ elif pagina == "Insights V360":
     df_mes = df_original.copy()
     if not df_mes.empty:
         df_mes["data_captacao"] = pd.to_datetime(df_mes["data_captacao"], errors="coerce")
+        df_mes = df_mes[df_mes["status_lead"].fillna("Novo") != "Erro de cadastro"].copy()
         df_mes = df_mes[df_mes["data_captacao"].dt.date >= mes_atual]
     conv_mes = df_mes[df_mes["status_lead"] == "Convertido"] if not df_mes.empty and "status_lead" in df_mes.columns else pd.DataFrame()
     if conv_mes.empty:
