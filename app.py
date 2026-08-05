@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-76-escopo-unidade-seguro"
+VERSAO_APP = "app-77-isolamento-total-unidade"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -1095,6 +1095,17 @@ def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
     return df[unidades_registros.isin(permitidas_normalizadas)].copy()
 
 
+
+def aplicar_escopo_usuario(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
+    """
+    Ponto único de isolamento dos dados por unidade.
+
+    Deve ser usado por qualquer módulo que possua a coluna ``unidade``:
+    clientes, agenda, pendências, relatórios, documentos, dashboard, insights
+    e futuras telas de TV.
+    """
+    return aplicar_escopo_unidade(df, usuario)
+
 def nome_estado_por_uf(uf: str) -> str:
     mapa = {
         "AM": "Amazonas",
@@ -1634,27 +1645,34 @@ def carregar_pendencias() -> pd.DataFrame:
 
 
 def filtrar_pendencias_por_escopo(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
-    if df.empty:
+    """
+    Aplica primeiro o isolamento por unidade e depois a regra de visibilidade.
+
+    Assim, nenhuma pendência de outra unidade chega à tela, ainda que esteja
+    marcada como "Todos".
+    """
+    if df is None or df.empty:
         return df
+
     df2 = df.copy()
     for col in ["unidade", "visibilidade", "captador_destino_id"]:
         if col not in df2.columns:
             df2[col] = ""
-    df2["unidade"] = df2["unidade"].fillna("Boa Vista").replace("", "Boa Vista")
 
-    if usuario.get("perfil") == "captador":
-        uid = str(usuario.get("id", ""))
-        unidades = unidades_permitidas_usuario(usuario)
-        mask_unidade = df2["unidade"].isin(unidades)
-        mask_vis = df2["visibilidade"].fillna("Todos").isin(["Todos", "todos", "todos_unidade"])
-        mask_dest = df2["captador_destino_id"].fillna("").astype(str).eq(uid)
-        return df2[mask_unidade & (mask_vis | mask_dest)]
-
-    if usuario_eh_geral(usuario):
+    # Usa a mesma normalização central de Clientes, Agenda, Dashboard e Relatórios.
+    df2 = aplicar_escopo_usuario(df2, usuario)
+    if df2.empty:
         return df2
-    unidades = unidades_permitidas_usuario(usuario)
-    return df2[df2["unidade"].isin(unidades)]
 
+    perfil = str((usuario or {}).get("perfil", "") or "").strip().lower()
+    if perfil in ["captador", "atendente"]:
+        uid = str((usuario or {}).get("id", "") or "")
+        vis = df2["visibilidade"].fillna("Todos").astype(str).str.strip().str.casefold()
+        mask_vis = vis.isin(["todos", "todos_unidade", "todos os atendentes da unidade"])
+        mask_dest = df2["captador_destino_id"].fillna("").astype(str).eq(uid)
+        return df2[mask_vis | mask_dest].copy()
+
+    return df2
 
 def resumo_documentos_pendencias(df_pend: pd.DataFrame) -> pd.DataFrame:
     if df_pend.empty or "lead_id" not in df_pend.columns:
@@ -3268,7 +3286,7 @@ if pagina == "Novo Cliente":
 # -------------------------------
 elif pagina == "Minhas Clientes":
     st.title("📋 Meus Clientes")
-    df = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df = aplicar_escopo_usuario(carregar_leads(), usuario)
 
     if df.empty:
         st.info("Nenhum cliente encontrado.")
@@ -3308,7 +3326,7 @@ elif pagina == "Documentos":
     st.title("📎 Enviar Documentos")
     st.caption("Localize um cliente já cadastrado e envie documentos mesmo que ele não tenha pendência aberta.")
 
-    df_docs = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df_docs = aplicar_escopo_usuario(carregar_leads(), usuario)
 
     if df_docs.empty:
         st.info("Nenhum cliente disponível no seu escopo.")
@@ -3509,7 +3527,7 @@ elif pagina == "Painel Gestor":
     )
 
     unidades_dashboard = unidades_permitidas_usuario(usuario)
-    df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df_original = aplicar_escopo_usuario(carregar_leads(), usuario)
 
     if usuario.get("perfil") == "gestor_regional":
         st.caption(
@@ -3808,7 +3826,7 @@ elif pagina == "Insights V360":
         unsafe_allow_html=True,
     )
 
-    df_original = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df_original = aplicar_escopo_usuario(carregar_leads(), usuario)
     if df_original.empty:
         st.info("Nenhum dado encontrado. Cadastre alguns clientes para gerar os insights.")
         st.stop()
@@ -4054,9 +4072,11 @@ elif pagina == "Agenda de Atendimentos":
     st.title("📅 Agenda de Atendimentos")
     st.caption("Agenda ativa no fuso de Manaus. Cancelados e horários antigos remarcados ficam ocultos por padrão.")
 
-    df_agenda = carregar_agendamentos()
+    # Segurança multiunidade: a agenda é filtrada antes de qualquer
+    # card, calendário, pesquisa ou atualização.
+    df_agenda = aplicar_escopo_usuario(carregar_agendamentos(), usuario)
     if df_agenda.empty:
-        st.info("Nenhum atendimento agendado.")
+        st.info("Nenhum atendimento agendado nas unidades permitidas para este usuário.")
         st.stop()
 
     for col in [
@@ -4237,7 +4257,7 @@ elif pagina == "Transferência de Clientes":
     st.title("🔁 Transferência de Clientes")
     st.caption("Transfira um ou vários clientes para outro atendente, com registro no histórico.")
 
-    df_transferencia = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df_transferencia = aplicar_escopo_usuario(carregar_leads(), usuario)
 
     if df_transferencia.empty:
         st.info("Nenhum cliente disponível no seu escopo.")
@@ -4678,7 +4698,7 @@ elif pagina == "Pendências":
     st.title("📌 Central de Pendências V360")
     st.caption("Registre, distribua e acompanhe pendências de clientes cadastrados ou ainda não cadastrados.")
 
-    df_leads_all = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df_leads_all = aplicar_escopo_usuario(carregar_leads(), usuario)
     usuarios_ativos = listar_usuarios_ativos()
     unidades_permitidas = unidades_permitidas_usuario(usuario)
     hoje_pend = hoje_manaus()
@@ -4972,7 +4992,7 @@ elif pagina == "Pendências":
 elif pagina == "Atualizar Cliente":
     st.title("✏️ Atualizar Cliente")
     st.caption("Busque o cliente, atualize o funil e registre o histórico do atendimento.")
-    df = aplicar_escopo_unidade(carregar_leads(), usuario)
+    df = aplicar_escopo_usuario(carregar_leads(), usuario)
 
     if df.empty:
         st.info("Nenhum cliente encontrado.")
