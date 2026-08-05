@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-76-status-erro-tela-sucesso"
+VERSAO_APP = "app-76-escopo-unidade-seguro"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -920,9 +920,16 @@ def listar_unidades_usuario(usuario_id: str):
 
 
 def usuario_eh_geral(usuario: dict) -> bool:
-    perfil = (usuario or {}).get("perfil", "")
-    # Gestor geral vê todas as unidades. Supervisor/gestor_unidade/gestor_regional respeitam as unidades liberadas.
-    return perfil in ["gestor_geral", "gestor"]
+    """
+    Retorna True apenas para o perfil com acesso global.
+
+    Regras:
+    - gestor_geral: pode visualizar todas as unidades;
+    - gestor, gestor_regional, gestor_unidade e supervisor:
+      respeitam exclusivamente as unidades vinculadas ao usuário.
+    """
+    perfil = str((usuario or {}).get("perfil", "") or "").strip().lower()
+    return perfil == "gestor_geral"
 
 
 
@@ -975,10 +982,10 @@ def unidades_permitidas_usuario(usuario: dict) -> list[str]:
         if valor:
             unidades_brutas.append(valor)
 
-    # O cabeçalho antigo pode mostrar Boa Vista, enquanto a unidade oficial
-    # está cadastrada como Boa Vista - Roraima.
+    # Segurança: usuário sem unidade vinculada não recebe acesso automático
+    # a nenhuma unidade. O cadastro deve ser corrigido pelo gestor.
     if not unidades_brutas:
-        unidades_brutas = ["Boa Vista"]
+        return []
 
     unidades_resolvidas = []
     for unidade in unidades_brutas:
@@ -1070,6 +1077,10 @@ def aplicar_escopo_unidade(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
         for unidade in permitidas
         if unidade
     }
+
+    # Sem unidade vinculada, o usuário não recebe dados de nenhuma unidade.
+    if not permitidas_normalizadas:
+        return df.iloc[0:0].copy()
 
     def normalizar_unidade_registro(valor):
         valor_limpo = normalizar_texto(valor or "Boa Vista").strip()
