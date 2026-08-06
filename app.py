@@ -40,7 +40,7 @@ TABELA_ARQUIVOS = "captacao_arquivos"
 TABELA_AGENDAMENTOS = "captacao_agendamentos"
 BUCKET_ARQUIVOS = "captacao-temporario"
 LOGO_FILE = "Logo_Molina_1_Traco_negativomenor.png"
-VERSAO_APP = "app-77-isolamento-total-unidade"
+VERSAO_APP = "app-82-insights-filtro-unidade"
 
 FUSO_MANAUS = ZoneInfo("America/Manaus")
 
@@ -3864,19 +3864,48 @@ elif pagina == "Insights V360":
         data_ini = df["data_captacao"].dt.date.min()
         data_fim = df["data_captacao"].dt.date.max()
 
-    colf5, colf6, colf7, colf8 = st.columns(4)
+    # Mantém o mesmo padrão de filtros do Dashboard Executivo.
+    if "unidade" not in df.columns:
+        df["unidade"] = "Boa Vista"
+    df["unidade"] = df["unidade"].fillna("Boa Vista").replace("", "Boa Vista")
+
+    colf5, colf6, colf7, colf8, colf9 = st.columns(5)
     with colf5:
-        atendente_filtro = st.multiselect("Atendente", sorted(df["captador_nome"].dropna().unique().tolist()), key="ins_atendente")
+        unidade_filtro = st.multiselect(
+            "Unidade",
+            sorted(df["unidade"].dropna().unique().tolist()),
+            key="ins_unidade",
+        )
     with colf6:
-        bairro_filtro = st.multiselect("Bairro", sorted(df["bairro"].dropna().unique().tolist()), key="ins_bairro")
+        atendente_filtro = st.multiselect(
+            "Atendente",
+            sorted(df["captador_nome"].dropna().unique().tolist()),
+            key="ins_atendente",
+        )
     with colf7:
-        beneficio_filtro = st.multiselect("Benefício", sorted(df["tipo_beneficio"].dropna().unique().tolist()), key="ins_beneficio")
+        bairro_filtro = st.multiselect(
+            "Bairro",
+            sorted(df["bairro"].dropna().unique().tolist()),
+            key="ins_bairro",
+        )
     with colf8:
-        local_filtro = st.multiselect("Local", sorted(df["local_captacao"].dropna().unique().tolist()), key="ins_local")
+        beneficio_filtro = st.multiselect(
+            "Benefício",
+            sorted(df["tipo_beneficio"].dropna().unique().tolist()),
+            key="ins_beneficio",
+        )
+    with colf9:
+        local_filtro = st.multiselect(
+            "Local",
+            sorted(df["local_captacao"].dropna().unique().tolist()),
+            key="ins_local",
+        )
 
     df = df[(df["data_captacao"].dt.date >= data_ini) & (df["data_captacao"].dt.date <= data_fim)]
     if status_filtro:
         df = df[df["status_lead"].isin(status_filtro)]
+    if unidade_filtro:
+        df = df[df["unidade"].isin(unidade_filtro)]
     if atendente_filtro:
         df = df[df["captador_nome"].isin(atendente_filtro)]
     if bairro_filtro:
